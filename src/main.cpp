@@ -49,7 +49,10 @@ constexpr int   CUP_SCORE      = 1000;   // кубок-трофей
 constexpr int   KILL_SCORE[3]  = {200, 100, 300};   // паук, зомби, метатель ножей
 constexpr int   JEWEL_SCORE[3] = {200, 400, 600};   // три вида украшений
 
-enum GameState { ST_TITLE = 0, ST_PLAY = 1, ST_WIN = 2, ST_DYING = 3, ST_GAMEOVER = 4 };
+enum GameState {
+    ST_TITLE = 0, ST_PLAY = 1, ST_WIN = 2, ST_DYING = 3, ST_GAMEOVER = 4,
+    ST_SETTINGS = 5
+};
 enum DeathCause { DEATH_SPIDER = 0, DEATH_ZOMBIE = 1, DEATH_KNIFE = 2 };
 
 // ---------------------------------------------------------------------------
@@ -162,7 +165,84 @@ struct Input {
     bool shootPressed = false;
     bool confirm = false;
     bool restart = false;
+    // Навигация по меню (не переназначается).
+    bool menuUp = false, menuDown = false, back = false;
 };
+
+// ---------------------------------------------------------------------------
+//  Управление
+// ---------------------------------------------------------------------------
+enum ControlAction {
+    CA_LEFT = 0, CA_RIGHT, CA_UP, CA_DOWN, CA_JUMP,
+    CA_AIM_UP, CA_AIM_DOWN, CA_SHOOT, CA_RESTART, CA_COUNT
+};
+
+struct Controls {
+    SDL_Scancode keys[CA_COUNT] = {
+        SDL_SCANCODE_A, SDL_SCANCODE_D, SDL_SCANCODE_W, SDL_SCANCODE_S,
+        SDL_SCANCODE_SPACE, SDL_SCANCODE_UP, SDL_SCANCODE_DOWN,
+        SDL_SCANCODE_LCTRL, SDL_SCANCODE_R
+    };
+
+    void reset()
+    {
+        keys[CA_LEFT]     = SDL_SCANCODE_A;
+        keys[CA_RIGHT]    = SDL_SCANCODE_D;
+        keys[CA_UP]       = SDL_SCANCODE_W;
+        keys[CA_DOWN]     = SDL_SCANCODE_S;
+        keys[CA_JUMP]     = SDL_SCANCODE_SPACE;
+        keys[CA_AIM_UP]   = SDL_SCANCODE_UP;
+        keys[CA_AIM_DOWN] = SDL_SCANCODE_DOWN;
+        keys[CA_SHOOT]    = SDL_SCANCODE_LCTRL;
+        keys[CA_RESTART]  = SDL_SCANCODE_R;
+    }
+};
+
+inline const char* controlName(int action)
+{
+    switch (action) {
+        case CA_LEFT:     return "ВЛЕВО";
+        case CA_RIGHT:    return "ВПРАВО";
+        case CA_UP:       return "ВВЕРХ / ЛАЗАТЬ";
+        case CA_DOWN:     return "ВНИЗ / ЛАЗАТЬ";
+        case CA_JUMP:     return "ПРЫЖОК";
+        case CA_AIM_UP:   return "ПРИЦЕЛ ВВЕРХ";
+        case CA_AIM_DOWN: return "ПРИЦЕЛ ВНИЗ";
+        case CA_SHOOT:    return "ВЫСТРЕЛ";
+        case CA_RESTART:  return "ЗАНОВО";
+        default:          return "";
+    }
+}
+
+inline std::string keyLabel(SDL_Scancode sc)
+{
+    if (sc == SDL_SCANCODE_UNKNOWN) return "НЕТ";
+    if (sc >= SDL_SCANCODE_A && sc <= SDL_SCANCODE_Z)
+        return std::string(1, static_cast<char>('A' + (sc - SDL_SCANCODE_A)));
+    if (sc >= SDL_SCANCODE_1 && sc <= SDL_SCANCODE_9)
+        return std::string(1, static_cast<char>('1' + (sc - SDL_SCANCODE_1)));
+    if (sc == SDL_SCANCODE_0) return "0";
+    switch (sc) {
+        case SDL_SCANCODE_SPACE:     return "ПРОБЕЛ";
+        case SDL_SCANCODE_UP:        return "↑";
+        case SDL_SCANCODE_DOWN:      return "↓";
+        case SDL_SCANCODE_LEFT:      return "←";
+        case SDL_SCANCODE_RIGHT:     return "→";
+        case SDL_SCANCODE_LCTRL:
+        case SDL_SCANCODE_RCTRL:     return "CTRL";
+        case SDL_SCANCODE_LSHIFT:
+        case SDL_SCANCODE_RSHIFT:    return "SHIFT";
+        case SDL_SCANCODE_LALT:
+        case SDL_SCANCODE_RALT:      return "ALT";
+        case SDL_SCANCODE_RETURN:    return "ENTER";
+        case SDL_SCANCODE_TAB:       return "TAB";
+        case SDL_SCANCODE_BACKSPACE: return "BACKSPACE";
+        default: break;
+    }
+    if (sc >= SDL_SCANCODE_F1 && sc <= SDL_SCANCODE_F12)
+        return "F" + std::to_string(sc - SDL_SCANCODE_F1 + 1);
+    return "КЛАВИША " + std::to_string(static_cast<int>(sc));
+}
 
 // ---------------------------------------------------------------------------
 //  Карта уровня
@@ -408,6 +488,11 @@ struct Game {
     RectF door{};
     RectF checkpoint{};
     int state = ST_TITLE;
+    Controls controls;
+    int menuIndex = 0;
+    int settingsIndex = 0;
+    int bindTarget = -1;          // действие, ждущее новую клавишу
+    bool quitRequested = false;   // «Выход» в главном меню
     int levelIndex = 0;
     int cupsGot = 0;
     int kills = 0;
@@ -439,6 +524,7 @@ struct Game {
     bool init(SDL_Renderer* r);
     void resetWorld(int index);
     void startGame();
+    void assignBind(SDL_Scancode sc);
     void update(float dt, const Input& in);
     void render();
 
@@ -511,6 +597,7 @@ struct Game {
     void drawHUD();
     void drawDeathOverlay();
     void drawTitleScreen();
+    void drawSettingsScreen();
     void drawWinScreen();
     void drawGameOverScreen();
 
@@ -919,6 +1006,21 @@ void Game::startGame()
     state = ST_PLAY;
 }
 
+void Game::assignBind(SDL_Scancode sc)
+{
+    if (bindTarget < 0 || bindTarget >= CA_COUNT) return;
+    if (sc == SDL_SCANCODE_UNKNOWN || sc == SDL_SCANCODE_ESCAPE) return;
+
+    // Если клавиша уже занята, меняемся местами: двух действий на одной
+    // клавише не будет.
+    for (int i = 0; i < CA_COUNT; ++i) {
+        if (i != bindTarget && controls.keys[i] == sc)
+            controls.keys[i] = controls.keys[bindTarget];
+    }
+    controls.keys[bindTarget] = sc;
+    bindTarget = -1;
+}
+
 // ---------------------------------------------------------------------------
 //  Обновление
 // ---------------------------------------------------------------------------
@@ -941,21 +1043,75 @@ void Game::update(float dt, const Input& in)
     hurtFlash = std::max(0.0f, hurtFlash - dt * 2.4f);
 
     if (state == ST_TITLE) {
+        if (in.menuUp)
+            menuIndex = (menuIndex + 2) % 3;
+        if (in.menuDown)
+            menuIndex = (menuIndex + 1) % 3;
+        if (in.back) {
+            quitRequested = true;
+            return;
+        }
         if (in.confirm) {
-            startGame();
-            // Пробел, которым начали игру, не должен сразу превращаться в прыжок.
-            jumpEdge = false;
-            prevSpacePressed = true;
-            prevUpPressed = true;
+            if (menuIndex == 0) {
+                startGame();
+                // Пробел, которым начали игру, не должен сразу превращаться в прыжок.
+                jumpEdge = false;
+                prevSpacePressed = true;
+                prevUpPressed = true;
+            } else if (menuIndex == 1) {
+                state = ST_SETTINGS;
+                settingsIndex = 0;
+                bindTarget = -1;
+            } else {
+                quitRequested = true;
+            }
+        }
+        return;
+    }
+    if (state == ST_SETTINGS) {
+        const int rows = CA_COUNT + 1;
+        if (bindTarget >= 0) return;
+        if (in.menuUp)
+            settingsIndex = (settingsIndex + rows - 1) % rows;
+        if (in.menuDown)
+            settingsIndex = (settingsIndex + 1) % rows;
+        if (in.back) {
+            state = ST_TITLE;
+            menuIndex = 1;
+            return;
+        }
+        if (in.confirm) {
+            if (settingsIndex < CA_COUNT) {
+                bindTarget = settingsIndex;
+            } else {
+                state = ST_TITLE;
+                menuIndex = 1;
+            }
         }
         return;
     }
     if (state == ST_WIN || state == ST_GAMEOVER) {
+        if (in.back) {
+            state = ST_TITLE;
+            menuIndex = 0;
+            return;
+        }
         if (in.restart) startGame();
         return;
     }
     if (state == ST_DYING) {
+        if (in.back) {
+            state = ST_TITLE;
+            menuIndex = 0;
+            return;
+        }
         updateDeath(dt);
+        return;
+    }
+    if (in.back) {
+        state = ST_TITLE;
+        menuIndex = 0;
+        titleBlink = 0;
         return;
     }
     if (in.restart) {
@@ -1806,6 +1962,8 @@ void Game::render()
 
     if (state == ST_TITLE) {
         drawTitleScreen();
+    } else if (state == ST_SETTINGS) {
+        drawSettingsScreen();
     } else if (state == ST_PLAY) {
         drawHUD();
     } else if (state == ST_DYING) {
@@ -3222,36 +3380,105 @@ void Game::drawHUD()
 
 void Game::drawTitleScreen()
 {
-    SDL_SetRenderDrawColor(ren, 8, 5, 10, 120);
+    SDL_SetRenderDrawColor(ren, 8, 5, 10, 150);
     SDL_RenderFillRect(ren, nullptr);
 
     // золотые линейки
     SDL_SetRenderDrawColor(ren, 214, 174, 92, 140);
-    SDL_Rect l1{70, 52, VIEW_W - 140, 1};
-    SDL_Rect l2{70, 146, VIEW_W - 140, 1};
+    SDL_Rect l1{70, 44, VIEW_W - 140, 1};
+    SDL_Rect l2{70, 128, VIEW_W - 140, 1};
     SDL_RenderFillRect(ren, &l1);
     SDL_RenderFillRect(ren, &l2);
 
-    pixfont::drawTextCentered(ren, VIEW_W / 2, 60, "АПАРТАМЕНТЫ", 4,
+    pixfont::drawTextCentered(ren, VIEW_W / 2, 52, "АПАРТАМЕНТЫ", 3,
                               SDL_Color{255, 222, 130, 255});
-    pixfont::drawTextCentered(ren, VIEW_W / 2, 100, "«ДАЙМОНД»", 4,
+    pixfont::drawTextCentered(ren, VIEW_W / 2, 84, "«ДАЙМОНД»", 3,
                               SDL_Color{238, 206, 120, 255});
-    pixfont::drawTextCentered(ren, VIEW_W / 2, 154, "ПРИКЛЮЧЕНИЕ КОЛЯНА", 1,
+    pixfont::drawTextCentered(ren, VIEW_W / 2, 112, "ПРИКЛЮЧЕНИЕ КОЛЯНА", 1,
                               SDL_Color{212, 196, 170, 255});
 
-    if (std::fmod(titleBlink, 1.15f) < 0.78f) {
-        pixfont::drawTextCentered(ren, VIEW_W / 2, 196, "НАЖМИ ПРОБЕЛ", 2,
-                                  SDL_Color{240, 236, 220, 255});
+    const char* items[3] = {"НОВАЯ ИГРА", "НАСТРОЙКИ", "ВЫХОД"};
+    for (int i = 0; i < 3; ++i) {
+        int y = 148 + i * 24;
+        bool sel = (i == menuIndex);
+        if (sel) {
+            SDL_SetRenderDrawColor(ren, 70, 54, 28, 210);
+            SDL_Rect bg{VIEW_W / 2 - 92, y - 4, 184, 17};
+            SDL_RenderFillRect(ren, &bg);
+            SDL_SetRenderDrawColor(ren, 214, 174, 92, 220);
+            SDL_Rect ln{VIEW_W / 2 - 92, y + 13, 184, 1};
+            SDL_RenderFillRect(ren, &ln);
+        }
+        pixfont::drawTextCentered(ren, VIEW_W / 2, y, items[i], 2,
+                                  sel ? SDL_Color{255, 232, 160, 255}
+                                      : SDL_Color{196, 184, 162, 255});
     }
 
-    pixfont::drawTextCentered(ren, VIEW_W / 2, 230,
-                              "A/D - ИДТИ   W - ПРЫЖОК ПО СТУПЕНЯМ", 1,
-                              SDL_Color{180, 168, 150, 255});
-    pixfont::drawTextCentered(ren, VIEW_W / 2, 242,
-                              "ВНИЗ СО СТУПЕНЕЙ - ШАГ ЗА КРАЙ", 1,
+    pixfont::drawTextCentered(ren, VIEW_W / 2, 232,
+                              "W/S ИЛИ ↑/↓ - ВЫБОР   ENTER - ОК", 1,
                               SDL_Color{196, 176, 148, 255});
-    pixfont::drawTextCentered(ren, VIEW_W / 2, 256,
-                              "↑/↓ - ПРИЦЕЛ   CTRL - ВЫСТРЕЛ   R - СНАЧАЛА", 1,
+    pixfont::drawTextCentered(ren, VIEW_W / 2, 248,
+                              "ESC - ВЫХОД ИЗ ИГРЫ", 1,
+                              SDL_Color{150, 140, 128, 255});
+}
+
+void Game::drawSettingsScreen()
+{
+    SDL_SetRenderDrawColor(ren, 8, 5, 10, 190);
+    SDL_RenderFillRect(ren, nullptr);
+
+    // золотые линейки
+    SDL_SetRenderDrawColor(ren, 214, 174, 92, 140);
+    SDL_Rect l1{40, 24, VIEW_W - 80, 1};
+    SDL_Rect l2{40, 208, VIEW_W - 80, 1};
+    SDL_RenderFillRect(ren, &l1);
+    SDL_RenderFillRect(ren, &l2);
+
+    pixfont::drawTextCentered(ren, VIEW_W / 2, 32, "НАСТРОЙКИ", 2,
+                              SDL_Color{255, 222, 130, 255});
+    pixfont::drawTextCentered(ren, VIEW_W / 2, 50, "УПРАВЛЕНИЕ", 1,
+                              SDL_Color{196, 176, 148, 255});
+
+    const int rows = CA_COUNT + 1;
+    for (int i = 0; i < rows; ++i) {
+        int y = 66 + i * 15;
+        bool sel = (i == settingsIndex);
+        bool waiting = (i == bindTarget);
+        if (sel) {
+            if (waiting) SDL_SetRenderDrawColor(ren, 84, 44, 30, 215);
+            else         SDL_SetRenderDrawColor(ren, 56, 44, 24, 215);
+            SDL_Rect bg{44, y - 3, VIEW_W - 88, 13};
+            SDL_RenderFillRect(ren, &bg);
+            if (waiting) SDL_SetRenderDrawColor(ren, 230, 120, 70, 230);
+            else         SDL_SetRenderDrawColor(ren, 214, 174, 92, 230);
+            SDL_Rect mark{44, y - 3, 2, 13};
+            SDL_RenderFillRect(ren, &mark);
+        }
+
+        const char* label = (i < CA_COUNT) ? controlName(i) : "НАЗАД";
+        SDL_Color lc = sel ? SDL_Color{246, 236, 214, 255}
+                           : SDL_Color{190, 180, 160, 255};
+        pixfont::drawText(ren, 56, y, label, 1, lc);
+
+        if (i < CA_COUNT) {
+            std::string key = waiting ? "НАЖМИТЕ КЛАВИШУ"
+                                      : keyLabel(controls.keys[i]);
+            SDL_Color kc = waiting ? SDL_Color{255, 190, 120, 255}
+                                   : (sel ? SDL_Color{255, 226, 150, 255}
+                                          : SDL_Color{212, 196, 170, 255});
+            pixfont::drawText(ren, 424 - pixfont::textWidth(key, 1), y, key, 1, kc);
+        } else {
+            pixfont::drawText(ren, 424 - pixfont::textWidth("ESC", 1), y,
+                              "ESC", 1, sel ? SDL_Color{255, 226, 150, 255}
+                                            : SDL_Color{160, 150, 138, 255});
+        }
+    }
+
+    pixfont::drawTextCentered(ren, VIEW_W / 2, 220,
+                              "W/S ИЛИ ↑/↓ - ВЫБОР   ENTER - СМЕНИТЬ", 1,
+                              SDL_Color{196, 176, 148, 255});
+    pixfont::drawTextCentered(ren, VIEW_W / 2, 236,
+                              "ESC - НАЗАД", 1,
                               SDL_Color{150, 140, 128, 255});
 }
 
@@ -3739,6 +3966,15 @@ void Game::makeScenarios()
     state = ST_TITLE;
     render();
     screenshot("shot_title.bmp");
+    SDL_RenderPresent(ren);
+
+    // 0b — настройки управления
+    resetWorld(0);
+    state = ST_SETTINGS;
+    menuIndex = 1;
+    settingsIndex = 4;
+    render();
+    screenshot("shot_settings.bmp");
     SDL_RenderPresent(ren);
 
     // 1 — самое начало
@@ -4677,6 +4913,59 @@ void Game::runSmoke()
                 player.y + player.h, level2Stairs ? 1 : 0);
     }
 
+    // 10. Главное меню, настройки и переназначение клавиш.
+    resetWorld(0);
+    state = ST_TITLE;
+    menuIndex = 0;
+    controls.reset();
+    {
+        Input in;
+        in.confirm = true;
+        update(1.0f / 120.0f, in);
+    }
+    bool menuStart = (state == ST_PLAY);
+
+    state = ST_TITLE;
+    menuIndex = 1;
+    {
+        Input in;
+        in.confirm = true;
+        update(1.0f / 120.0f, in);
+    }
+    bool menuSettings = (state == ST_SETTINGS && settingsIndex == 0);
+
+    {
+        Input in;
+        in.confirm = true;
+        update(1.0f / 120.0f, in);
+    }
+    bool bindWaiting = (bindTarget == CA_LEFT);
+    assignBind(SDL_SCANCODE_Q);
+    bool menuRebind = (controls.keys[CA_LEFT] == SDL_SCANCODE_Q && bindTarget < 0);
+
+    {
+        Input in;
+        in.back = true;
+        update(1.0f / 120.0f, in);
+    }
+    bool settingsBack = (state == ST_TITLE && menuIndex == 1);
+
+    state = ST_PLAY;
+    {
+        Input in;
+        in.back = true;
+        update(1.0f / 120.0f, in);
+    }
+    bool escMenu = (state == ST_TITLE);
+    controls.reset();
+
+    bool menuOk = menuStart && menuSettings && bindWaiting && menuRebind &&
+                  settingsBack && escMenu;
+    SDL_Log("menu: start=%d settings=%d bind=%d rebind=%d back=%d esc=%d ok=%d",
+            menuStart ? 1 : 0, menuSettings ? 1 : 0, bindWaiting ? 1 : 0,
+            menuRebind ? 1 : 0, settingsBack ? 1 : 0, escMenu ? 1 : 0,
+            menuOk ? 1 : 0);
+
     bool ok = startFirstFloor && doorBasement && climbed && camOk && stepHeld &&
               stairFall && spiderOk && spiderCrawl &&
               gotCup && killScore && popupOk && jewelScore &&
@@ -4689,7 +4978,7 @@ void Game::runSmoke()
               lookForward && reloadOk && reloadWaitHeld && reloadStarted &&
               reloadProportional && reloadLocked &&
               reloadDone && dying && respawned && gameOver && level2 &&
-              level2Stairs && won;
+              level2Stairs && won && menuOk;
     SDL_Log("smoke %s", ok ? "OK" : "FAIL");
 }
 
@@ -4771,31 +5060,56 @@ int main(int argc, char** argv)
     bool running = true;
 
     while (running) {
+        bool swallowMenu = false;
         SDL_Event ev;
         while (SDL_PollEvent(&ev)) {
             if (ev.type == SDL_QUIT) running = false;
-            if (ev.type == SDL_KEYDOWN &&
-                ev.key.keysym.scancode == SDL_SCANCODE_ESCAPE) {
-                running = false;
+            if (ev.type == SDL_KEYDOWN && game.bindTarget >= 0) {
+                SDL_Scancode sc = ev.key.keysym.scancode;
+                if (sc == SDL_SCANCODE_ESCAPE) {
+                    game.bindTarget = -1;      // отмена переназначения
+                } else {
+                    game.assignBind(sc);
+                }
+                // Клавиша, назначенная только что, не должна ещё и
+                // сработать как навигация по меню в этом же кадре.
+                swallowMenu = true;
             }
         }
 
         const Uint8* ks = SDL_GetKeyboardState(nullptr);
-        Input in;
-        in.left = ks[SDL_SCANCODE_A] || ks[SDL_SCANCODE_LEFT];
-        in.right = ks[SDL_SCANCODE_D] || ks[SDL_SCANCODE_RIGHT];
-        in.up = ks[SDL_SCANCODE_W];
-        in.down = ks[SDL_SCANCODE_S];
-        in.lookUp = ks[SDL_SCANCODE_UP];
-        in.lookDown = ks[SDL_SCANCODE_DOWN];
-        in.jumpHeld = ks[SDL_SCANCODE_SPACE] || ks[SDL_SCANCODE_W];
-
+        auto held = [&](int action) {
+            SDL_Scancode sc = game.controls.keys[action];
+            return sc != SDL_SCANCODE_UNKNOWN && ks[sc];
+        };
         auto edge = [&](SDL_Scancode sc) { return ks[sc] && !prevKeys[sc]; };
-        in.upPressed = edge(SDL_SCANCODE_W);
-        in.spacePressed = edge(SDL_SCANCODE_SPACE);
-        in.shootPressed = edge(SDL_SCANCODE_LCTRL) || edge(SDL_SCANCODE_RCTRL);
-        in.confirm = edge(SDL_SCANCODE_SPACE) || edge(SDL_SCANCODE_RETURN);
-        in.restart = edge(SDL_SCANCODE_R);
+        auto edgeAction = [&](int action) {
+            SDL_Scancode sc = game.controls.keys[action];
+            return sc != SDL_SCANCODE_UNKNOWN && edge(sc);
+        };
+
+        Input in;
+        in.left = held(CA_LEFT);
+        in.right = held(CA_RIGHT);
+        in.up = held(CA_UP);
+        in.down = held(CA_DOWN);
+        in.lookUp = held(CA_AIM_UP);
+        in.lookDown = held(CA_AIM_DOWN);
+        in.jumpHeld = held(CA_JUMP) || held(CA_UP);
+
+        in.upPressed = edgeAction(CA_UP);
+        in.spacePressed = edgeAction(CA_JUMP);
+        in.shootPressed = edgeAction(CA_SHOOT);
+        in.restart = edgeAction(CA_RESTART);
+        // Меню всегда ходит на W/S и стрелках, подтверждение — Enter/Space,
+        // назад — Esc.
+        in.menuUp = edge(SDL_SCANCODE_W) || edge(SDL_SCANCODE_UP);
+        in.menuDown = edge(SDL_SCANCODE_S) || edge(SDL_SCANCODE_DOWN);
+        in.confirm = edge(SDL_SCANCODE_RETURN) || edge(SDL_SCANCODE_SPACE);
+        in.back = edge(SDL_SCANCODE_ESCAPE);
+        if (swallowMenu)
+            in.menuUp = in.menuDown = in.confirm = in.back = false;
+
         memcpy(prevKeys, ks, SDL_NUM_SCANCODES);
 
         Uint64 now = SDL_GetPerformanceCounter();
@@ -4804,11 +5118,18 @@ int main(int argc, char** argv)
         if (dt > 0.05) dt = 0.05;
         accumulator += dt;
         int guard = 0;
+        bool firstStep = true;
         while (accumulator >= fixedStep && guard < 8) {
-            game.update(static_cast<float>(fixedStep), in);
+            Input stepIn = in;
+            if (!firstStep)
+                stepIn.menuUp = stepIn.menuDown = stepIn.confirm = stepIn.back = false;
+            game.update(static_cast<float>(fixedStep), stepIn);
+            firstStep = false;
             accumulator -= fixedStep;
             ++guard;
         }
+
+        if (game.quitRequested) break;
 
         game.render();
         SDL_RenderPresent(ren);
