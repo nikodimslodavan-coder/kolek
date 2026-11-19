@@ -748,22 +748,71 @@ void Game::resetWorld(int index)
         }
     }
 
-    // Окна и портреты не должны висеть на лестничных шахтах: убираем те,
-    // чей рисунок перекрывает ступени или стремянки.
-    decor.erase(
-        std::remove_if(decor.begin(), decor.end(), [&](const Decor& d) {
-            if (d.type != DEC_WINDOW && d.type != DEC_PAINTING) return false;
-            const int wTiles = (d.type == DEC_WINDOW) ? 3 : 2;
-            const int hTiles = (d.type == DEC_WINDOW) ? 4 : 3;
-            // Смотрим и на пару рядов ниже рисунка: окно, висящее вплотную
-            // над верхней ступенью, тоже читается как «окно на лестнице».
-            for (int ty = d.ty - 1; ty <= d.ty + hTiles + 3; ++ty)
-                for (int tx = d.tx - 1; tx <= d.tx + wTiles; ++tx)
-                    if (lvl.at(tx, ty) == 'S' || lvl.at(tx, ty) == 'L')
-                        return true;
-            return false;
-        }),
-        decor.end());
+    // Декор не должен накладываться на ступени, лестницы, дверь, кубки и
+    // другие украшения. У каждого элемента считаем реальную рамку рисунка
+    // в пикселях и оставляем только те, что ни с чем не пересекаются.
+    auto decorPixels = [](const Decor& d) -> SDL_Rect {
+        switch (d.type) {
+            case DEC_WINDOW:     return SDL_Rect{d.tx * 16 - 3, d.ty * 16 - 2, 40, 57};
+            case DEC_PAINTING:   return SDL_Rect{d.tx * 16 - 2, d.ty * 16 - 2, 32, 38};
+            case DEC_SCONCE:     return SDL_Rect{d.tx * 16 + 4, d.ty * 16 - 2, 8, 18};
+            case DEC_CHANDELIER: return SDL_Rect{d.tx * 16 - 6, d.ty * 16 + 16, 28, 19};
+            case DEC_SHELF:      return SDL_Rect{d.tx * 16, d.ty * 16 - 32, 48, 48};
+            case DEC_MIRROR:     return SDL_Rect{d.tx * 16 - 2, d.ty * 16, 26, 37};
+            case DEC_CLOCK:      return SDL_Rect{d.tx * 16 - 2, d.ty * 16 - 2, 26, 50};
+            default:             return SDL_Rect{d.tx * 16, d.ty * 16, 16, 16};
+        }
+    };
+    auto hitRect = [](const SDL_Rect& a, const SDL_Rect& b) {
+        return a.x < b.x + b.w && b.x < a.x + a.w &&
+               a.y < b.y + b.h && b.y < a.y + a.h;
+    };
+
+    std::vector<Decor> keptDecor;
+    std::vector<SDL_Rect> keptRects;
+    for (const Decor& d : decor) {
+        SDL_Rect r = decorPixels(d);
+        bool blocked = false;
+
+        // Ступени и лестницы.
+        for (int ty = r.y / TILE; ty <= (r.y + r.h - 1) / TILE && !blocked; ++ty) {
+            for (int tx = r.x / TILE; tx <= (r.x + r.w - 1) / TILE; ++tx) {
+                char c = lvl.at(tx, ty);
+                if (c == 'S' || c == 'L') {
+                    blocked = true;
+                    break;
+                }
+            }
+        }
+
+        // Дверь.
+        if (!blocked && door.w > 0.0f) {
+            SDL_Rect dr{static_cast<int>(door.x), static_cast<int>(door.y),
+                        static_cast<int>(door.w), static_cast<int>(door.h)};
+            if (hitRect(r, dr)) blocked = true;
+        }
+
+        // Кубки.
+        for (const CupItem& c : cups) {
+            if (blocked) break;
+            SDL_Rect cr{c.tx * 16, c.ty * 16, 16, 16};
+            if (hitRect(r, cr)) blocked = true;
+        }
+
+        // Другой декор.
+        for (const SDL_Rect& q : keptRects) {
+            if (hitRect(r, q)) {
+                blocked = true;
+                break;
+            }
+        }
+
+        if (!blocked) {
+            keptDecor.push_back(d);
+            keptRects.push_back(r);
+        }
+    }
+    decor.swap(keptDecor);
 
     // ковры
     rugs.clear();

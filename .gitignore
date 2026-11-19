@@ -2,6 +2,7 @@
 build/
 *.bmp
 mansion_test.exe
+crop*.png
 
 # экспортированные патчи коммитов
 commit/
