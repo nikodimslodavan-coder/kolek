@@ -3875,10 +3875,10 @@ void Game::makeScenarios()
     screenshot("shot_door.bmp");
     SDL_RenderPresent(ren);
 
-    // 6 — второй уровень
+    // 6 — второй уровень: винтовая шахта-зигзаг на нижнем этаже
     resetWorld(1);
     state = ST_PLAY;
-    player.x = 80 * 16.0f;
+    player.x = 40 * 16.0f;
     player.y = 482.0f;
     player.facing = 1;
     takeCup(12, 7);
@@ -4595,6 +4595,39 @@ void Game::runSmoke()
     bool won = (state == ST_WIN);
     SDL_Log("win: state=%d kills=%d", state, kills);
 
+    // 9. Лестницы второго уровня — тот же зигзаг из двух тайлов, что и в первом.
+    bool level2Stairs = false;
+    if (level2) {
+        resetWorld(1);
+        state = ST_PLAY;
+        monsters.clear();
+        player = Body{};
+        player.w = 10;
+        player.h = PLAYER_H;
+        player.x = 40 * 16.0f + 3.0f;          // в полосе перекрытия ступеней
+        player.y = 32 * 16.0f - PLAYER_H;      // нижний этаж
+        player.facing = 1;
+        snapCamera();
+        bool reached = false;
+        for (int i = 0; i < 6000; ++i) {
+            Input in;
+            in.jumpHeld = true;
+            if (player.grounded && player.jumpBuf <= 0.0f) in.spacePressed = true;
+            update(1.0f / 120.0f, in);
+            if (player.grounded && player.y + player.h <= 113.0f) {
+                reached = true;
+                break;
+            }
+        }
+        if (reached) {
+            // Отпускаем прыжок: Колян должен остаться стоять на верхней ступени.
+            for (int i = 0; i < 120; ++i) update(1.0f / 120.0f, Input{});
+            level2Stairs = (player.grounded && player.y + player.h <= 114.0f);
+        }
+        SDL_Log("stairs2: x=%.1f feet=%.1f climbed=%d", player.x,
+                player.y + player.h, level2Stairs ? 1 : 0);
+    }
+
     bool ok = startFirstFloor && doorBasement && climbed && camOk && stepHeld &&
               stairFall && spiderOk && spiderCrawl &&
               gotCup && killScore && popupOk && jewelScore &&
@@ -4606,7 +4639,8 @@ void Game::runSmoke()
               noAirShot && lookUpOk && lookDownOk &&
               lookForward && reloadOk && reloadWaitHeld && reloadStarted &&
               reloadProportional && reloadLocked &&
-              reloadDone && dying && respawned && gameOver && level2 && won;
+              reloadDone && dying && respawned && gameOver && level2 &&
+              level2Stairs && won;
     SDL_Log("smoke %s", ok ? "OK" : "FAIL");
 }
 
