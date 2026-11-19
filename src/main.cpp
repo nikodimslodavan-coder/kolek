@@ -52,7 +52,7 @@ constexpr int   JEWEL_SCORE[3] = {200, 400, 600};   // три вида укра�
 
 enum GameState {
     ST_TITLE = 0, ST_PLAY = 1, ST_WIN = 2, ST_DYING = 3, ST_GAMEOVER = 4,
-    ST_SETTINGS = 5
+    ST_SETTINGS = 5, ST_SLIDE = 6
 };
 enum DeathCause { DEATH_SPIDER = 0, DEATH_ZOMBIE = 1, DEATH_KNIFE = 2 };
 
@@ -513,6 +513,11 @@ struct Game {
     int bindSlot = 0;             // слот переназначаемой клавиши
     bool quitRequested = false;   // «Выход» в главном меню
     bool persistControls = true;  // не трогать файл в служебных режимах
+
+    // Слайды между уровнями.
+    std::vector<std::string> slideTexts;
+    int slideIndex = 0;
+    int slideNextLevel = -1;
     int levelIndex = 0;
     int cupsGot = 0;
     int kills = 0;
@@ -563,6 +568,7 @@ struct Game {
     void checkPickups();
     void checkDoor(float dt);
     void advanceLevel();
+    void beginSlides(int nextLevel);
     void respawnPlayer();
     void killPlayer(int cause);
     void fireShot(const Input& in);
@@ -618,6 +624,7 @@ struct Game {
     void drawDeathOverlay();
     void drawTitleScreen();
     void drawSettingsScreen();
+    void drawSlideScreen();
     void drawWinScreen();
     void drawGameOverScreen();
 
@@ -1170,6 +1177,23 @@ void Game::update(float dt, const Input& in)
             } else {
                 state = ST_TITLE;
                 menuIndex = 1;
+            }
+        }
+        return;
+    }
+    if (state == ST_SLIDE) {
+        if (in.confirm || in.back) {
+            ++slideIndex;
+            if (slideIndex >= static_cast<int>(slideTexts.size())) {
+                int next = slideNextLevel;
+                slideNextLevel = -1;
+                slideIndex = 0;
+                slideTexts.clear();
+                resetWorld(next);
+                spawnSparkle(player.x + player.w * 0.5f,
+                             player.y + player.h * 0.5f, 26,
+                             SDL_Color{255, 220, 130, 255});
+                shake = 0.25f;
             }
         }
         return;
@@ -1870,16 +1894,37 @@ void Game::checkDoor(float dt)
 void Game::advanceLevel()
 {
     if (levelIndex + 1 < LEVEL_COUNT) {
-        int next = levelIndex + 1;
-        resetWorld(next);
-        spawnSparkle(player.x + player.w * 0.5f, player.y + player.h * 0.5f, 26,
-                     SDL_Color{255, 220, 130, 255});
-        shake = 0.25f;
+        beginSlides(levelIndex + 1);
     } else {
         spawnSparkle(door.x + door.w * 0.5f, door.y + door.h * 0.5f, 40,
                      SDL_Color{255, 225, 130, 255});
         state = ST_WIN;
         spawnConfetti();
+    }
+}
+
+void Game::beginSlides(int nextLevel)
+{
+    slideTexts.clear();
+    slideIndex = 0;
+    slideNextLevel = nextLevel;
+
+    // Между первым и вторым этажом — короткая сцена с Лёхой.
+    if (levelIndex == 0 && nextLevel == 1) {
+        slideTexts.push_back("КОЛЯН. ЛЁХА ТЕБЯ КИНУЛ");
+        slideTexts.push_back("ЭТО СОМНИТЕЛЬНЫЕ АППАРТАМЕНТЫ, НАЙДИ ВЫХОД НАРУЖУ");
+    }
+
+    if (slideTexts.empty()) {
+        // Для переходов без слайдов — сразу следующий уровень.
+        int next = slideNextLevel;
+        slideNextLevel = -1;
+        resetWorld(next);
+        spawnSparkle(player.x + player.w * 0.5f, player.y + player.h * 0.5f, 26,
+                     SDL_Color{255, 220, 130, 255});
+        shake = 0.25f;
+    } else {
+        state = ST_SLIDE;
     }
 }
 
@@ -2044,6 +2089,8 @@ void Game::render()
         drawTitleScreen();
     } else if (state == ST_SETTINGS) {
         drawSettingsScreen();
+    } else if (state == ST_SLIDE) {
+        drawSlideScreen();
     } else if (state == ST_PLAY) {
         drawHUD();
     } else if (state == ST_DYING) {
@@ -3590,6 +3637,45 @@ void Game::drawSettingsScreen()
     }
 }
 
+void Game::drawSlideScreen()
+{
+    SDL_SetRenderDrawColor(ren, 6, 4, 8, 238);
+    SDL_RenderFillRect(ren, nullptr);
+
+    SDL_SetRenderDrawColor(ren, 214, 174, 92, 150);
+    SDL_Rect l1{54, 54, VIEW_W - 108, 1};
+    SDL_Rect l2{54, 212, VIEW_W - 108, 1};
+    SDL_RenderFillRect(ren, &l1);
+    SDL_RenderFillRect(ren, &l2);
+
+    pixfont::drawTextCentered(ren, VIEW_W / 2, 34, "МЕЖДУ ЭТАЖАМИ", 1,
+                              SDL_Color{196, 176, 148, 255});
+
+    if (slideIndex >= 0 && slideIndex < static_cast<int>(slideTexts.size())) {
+        std::vector<std::string> lines =
+            pixfont::wrapText(slideTexts[slideIndex], 32);
+        int lineH = 22;
+        int top = (VIEW_H - static_cast<int>(lines.size()) * lineH) / 2 - 4;
+        for (size_t i = 0; i < lines.size(); ++i) {
+            pixfont::drawTextCentered(ren, VIEW_W / 2,
+                                      top + static_cast<int>(i) * lineH,
+                                      lines[i], 2,
+                                      SDL_Color{246, 232, 198, 255});
+        }
+    }
+
+    std::string counter = "СЛАЙД " + std::to_string(slideIndex + 1) + " / " +
+                          std::to_string(static_cast<int>(slideTexts.size()));
+    pixfont::drawTextCentered(ren, VIEW_W / 2, 222, counter, 1,
+                              SDL_Color{150, 140, 128, 255});
+
+    if (std::fmod(titleBlink, 1.15f) < 0.78f) {
+        pixfont::drawTextCentered(ren, VIEW_W / 2, 240,
+                                  "ENTER - ДАЛЬШЕ", 1,
+                                  SDL_Color{235, 210, 160, 255});
+    }
+}
+
 void Game::drawWinScreen()
 {
     SDL_SetRenderDrawColor(ren, 8, 10, 26, 150);
@@ -4267,6 +4353,18 @@ void Game::makeScenarios()
     introTimer = 20.0f;
     render();
     screenshot("shot_door.bmp");
+    SDL_RenderPresent(ren);
+
+    // 5b — слайды между первым и вторым уровнем
+    resetWorld(0);
+    beginSlides(1);
+    render();
+    screenshot("shot_slide1.bmp");
+    SDL_RenderPresent(ren);
+
+    slideIndex = 1;
+    render();
+    screenshot("shot_slide2.bmp");
     SDL_RenderPresent(ren);
 
     // 6 — второй уровень: винтовая шахта-зигзаг на нижнем этаже
@@ -4990,7 +5088,7 @@ void Game::runSmoke()
     bool gameOver = (state == ST_GAMEOVER && lives == 0);
     SDL_Log("gameover: state=%d lives=%d", state, lives);
 
-    // 8. Переход на второй уровень и финальная победа.
+    // 8. Переход на второй уровень: сначала два слайда, затем сам уровень.
     resetWorld(0);
     monsters.clear();
     for (CupItem& c : cups) {
@@ -5004,8 +5102,28 @@ void Game::runSmoke()
     player.grounded = true;
     player.facing = 1;
     for (int i = 0; i < 200; ++i) update(1.0f / 120.0f, Input{});
+    bool slideShown = (state == ST_SLIDE && levelIndex == 0 &&
+                       static_cast<int>(slideTexts.size()) == 2);
+
+    // Первый слайд: подтверждение перелистывает ко второму.
+    {
+        Input in;
+        in.confirm = true;
+        update(1.0f / 120.0f, in);
+    }
+    bool slideSecond = (state == ST_SLIDE && slideIndex == 1);
+
+    // Второй слайд: подтверждение загружает второй уровень.
+    {
+        Input in;
+        in.confirm = true;
+        update(1.0f / 120.0f, in);
+    }
     bool level2 = (levelIndex == 1 && state == ST_PLAY);
-    SDL_Log("transition: level=%d state=%d", levelIndex, state);
+    bool slidesOk = slideShown && slideSecond && level2;
+    SDL_Log("slides: shown=%d second=%d level=%d state=%d ok=%d",
+            slideShown ? 1 : 0, slideSecond ? 1 : 0, levelIndex, state,
+            slidesOk ? 1 : 0);
 
     if (level2) {
         monsters.clear();
@@ -5164,8 +5282,8 @@ void Game::runSmoke()
               noAirShot && lookUpOk && lookDownOk &&
               lookForward && reloadOk && reloadWaitHeld && reloadStarted &&
               reloadProportional && reloadLocked &&
-              reloadDone && dying && respawned && gameOver && level2 &&
-              level2Stairs && won && menuOk;
+              reloadDone && dying && respawned && gameOver && slidesOk &&
+              level2 && level2Stairs && won && menuOk;
     SDL_Log("smoke %s", ok ? "OK" : "FAIL");
 }
 
