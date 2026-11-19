@@ -77,7 +77,6 @@ struct Body {
     float anim = 0;
     float hurt = 0;
     float invuln = 0;
-    float safeTimer = 0;
     int   lookY = 0;         // -1 — смотрит вверх, 0 — вперёд, 1 — вниз
 };
 
@@ -558,7 +557,6 @@ struct Game {
     void updateWeapon(float dt, const Input& in);
     void updateParticles(float dt);
     void updateTracers(float dt);
-    void updateCheckpoint(float dt);
     void updateCamera(float dt);
     void snapCamera();
     void updateDeath(float dt);
@@ -1210,7 +1208,6 @@ void Game::update(float dt, const Input& in)
     updateMonsters(dt);
     updateKnives(dt);
     checkPickups();
-    updateCheckpoint(dt);
     checkDoor(dt);
     updateCamera(dt);
     introTimer += dt;
@@ -1781,19 +1778,6 @@ void Game::updateTracers(float dt)
                   tracers.end());
 }
 
-void Game::updateCheckpoint(float dt)
-{
-    if (player.grounded && player.hurt <= 0 && player.invuln <= 0 && !player.climbing) {
-        player.safeTimer += dt;
-        if (player.safeTimer > 0.35f) {
-            checkpoint = RectF{player.x, player.y, player.w, player.h};
-            player.safeTimer = 0;
-        }
-    } else {
-        player.safeTimer = 0;
-    }
-}
-
 void Game::updateCamera(float dt)
 {
     float look = clampf(player.vx * 0.30f, -34.0f, 34.0f);
@@ -1832,6 +1816,15 @@ void Game::checkPickups()
             lvl.rows[c.ty][c.tx] = '.';
             spawnSparkle(cr.x + 6, cr.y + 6, 18, SDL_Color{255, 220, 110, 255});
             spawnSparkle(cr.x + 6, cr.y + 6, 8, SDL_Color{255, 250, 220, 255});
+
+            // Чекпоинт — место взятого кубка. Ищем пол под кубком, чтобы
+            // Колян после смерти встал на твёрдую поверхность.
+            int floorRow = c.ty + 1;
+            while (floorRow < lvl.h && !lvl.solid(c.tx, floorRow)) ++floorRow;
+            float cpx = c.tx * TILE + 3.0f;
+            float cpy = ((floorRow < lvl.h) ? floorRow * TILE
+                                            : (c.ty + 1) * TILE) - PLAYER_H;
+            checkpoint = RectF{cpx, cpy, player.w, player.h};
         }
     }
 
@@ -4575,6 +4568,41 @@ void Game::runSmoke()
                    score == beforeScore + CUP_SCORE);
     SDL_Log("cup: got=%d total=%d score=%d", gotCup ? 1 : 0, cupsGot, score);
 
+    // 3a. Чекпоинт — последний взятый кубок; без кубков — старт уровня.
+    resetWorld(0);
+    state = ST_PLAY;
+    monsters.clear();
+    lives = START_LIVES;
+    bool startCheckpoint = (std::fabs(checkpoint.x - player.x) < 0.5f &&
+                            std::fabs(checkpoint.y - player.y) < 0.5f);
+    CupItem& firstCup = cups.front();
+    int cupFloor = firstCup.ty + 1;
+    while (cupFloor < lvl.h && !lvl.solid(firstCup.tx, cupFloor)) ++cupFloor;
+    float cupPX = firstCup.tx * TILE + 3.0f;
+    float cupPY = cupFloor * TILE - PLAYER_H;
+    player = Body{};
+    player.w = 10;
+    player.h = PLAYER_H;
+    player.x = cupPX;
+    player.y = cupPY;
+    player.facing = 1;
+    player.grounded = true;
+    checkPickups();
+    bool cupCheckpoint = (cupsGot == 1 &&
+                          std::fabs(checkpoint.x - cupPX) < 0.5f &&
+                          std::fabs(checkpoint.y - cupPY) < 0.5f);
+    player.invuln = 0;
+    killPlayer(DEATH_SPIDER);
+    deathTimer = DEATH_TIME;
+    updateDeath(0.001f);
+    bool cupRespawn = (state == ST_PLAY && lives == START_LIVES - 1 &&
+                       std::fabs(player.x - cupPX) < 0.5f &&
+                       std::fabs(player.y - cupPY) < 0.5f);
+    bool cupCheckpointOk = startCheckpoint && cupCheckpoint && cupRespawn;
+    SDL_Log("cupcheckpoint: start=%d set=%d respawn=%d ok=%d",
+            startCheckpoint ? 1 : 0, cupCheckpoint ? 1 : 0,
+            cupRespawn ? 1 : 0, cupCheckpointOk ? 1 : 0);
+
     // 3b. Очки за убийство: зомби 100, паук 200, метатель 300.
     score = 0;
     size_t popupBefore = popups.size();
@@ -5127,6 +5155,7 @@ void Game::runSmoke()
     bool ok = startFirstFloor && doorBasement && climbed && camOk && stepHeld &&
               stairFall && spiderOk && spiderCrawl &&
               gotCup && killScore && popupOk && jewelScore &&
+              cupCheckpointOk &&
               popupRise && popupGone &&
               oneJumpOnly && doubleJump && jumpReset &&
               spaceWhileHoldingW && shotOk && recoilOk &&
