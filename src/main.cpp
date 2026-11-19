@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <fstream>
 #include <string>
 #include <vector>
 
@@ -212,6 +213,18 @@ inline const char* controlName(int action)
         case CA_RESTART:  return "ЗАНОВО";
         default:          return "";
     }
+}
+
+inline std::string configPath()
+{
+    std::string path;
+    char* base = SDL_GetBasePath();
+    if (base) {
+        path = base;
+        SDL_free(base);
+    }
+    path += "kolek.cfg";
+    return path;
 }
 
 inline std::string keyLabel(SDL_Scancode sc)
@@ -493,6 +506,7 @@ struct Game {
     int settingsIndex = 0;
     int bindTarget = -1;          // действие, ждущее новую клавишу
     bool quitRequested = false;   // «Выход» в главном меню
+    bool persistControls = true;  // не трогать файл в служебных режимах
     int levelIndex = 0;
     int cupsGot = 0;
     int kills = 0;
@@ -525,6 +539,8 @@ struct Game {
     void resetWorld(int index);
     void startGame();
     void assignBind(SDL_Scancode sc);
+    void loadControls();
+    void saveControls() const;
     void update(float dt, const Input& in);
     void render();
 
@@ -632,6 +648,8 @@ bool Game::init(SDL_Renderer* r)
     wallPalette[4] = SDL_Color{ 98, 72, 48, 255 };
     wallPalette[5] = SDL_Color{ 70, 50, 64, 255 };
     wallPalette[6] = SDL_Color{ 84, 64, 46, 255 };
+
+    loadControls();
 
     // Мягкое радиальное свечение
     {
@@ -1019,6 +1037,47 @@ void Game::assignBind(SDL_Scancode sc)
     }
     controls.keys[bindTarget] = sc;
     bindTarget = -1;
+    saveControls();
+}
+
+void Game::loadControls()
+{
+    controls.reset();
+    std::ifstream f(configPath());
+    if (!f) return;
+
+    std::string magic;
+    int version = 0;
+    if (!(f >> magic >> version)) return;
+    if (magic != "kolek-controls" || version != 1) return;
+
+    SDL_Scancode loaded[CA_COUNT];
+    for (int i = 0; i < CA_COUNT; ++i) {
+        int v = 0;
+        if (!(f >> v)) return;
+        if (v <= SDL_SCANCODE_UNKNOWN || v >= SDL_NUM_SCANCODES) return;
+        loaded[i] = static_cast<SDL_Scancode>(v);
+    }
+    // Битый файл с повторами не применяем: остаются настройки по умолчанию.
+    for (int i = 0; i < CA_COUNT; ++i)
+        for (int j = i + 1; j < CA_COUNT; ++j)
+            if (loaded[i] == loaded[j]) return;
+
+    for (int i = 0; i < CA_COUNT; ++i) controls.keys[i] = loaded[i];
+}
+
+void Game::saveControls() const
+{
+    if (!persistControls) return;
+
+    std::ofstream f(configPath(), std::ios::trunc);
+    if (!f) return;
+    f << "kolek-controls 1\n";
+    for (int i = 0; i < CA_COUNT; ++i) {
+        if (i) f << ' ';
+        f << static_cast<int>(controls.keys[i]);
+    }
+    f << '\n';
 }
 
 // ---------------------------------------------------------------------------
@@ -5028,6 +5087,7 @@ int main(int argc, char** argv)
     SDL_RenderSetIntegerScale(ren, SDL_TRUE);
 
     Game game;
+    if (screens || smoke) game.persistControls = false;
     if (!game.init(ren)) {
         SDL_DestroyRenderer(ren);
         SDL_DestroyWindow(win);

@@ -3,6 +3,7 @@ build/
 *.bmp
 mansion_test.exe
 crop*.png
+kolek.cfg
 
 # экспортированные патчи коммитов
 commit/
