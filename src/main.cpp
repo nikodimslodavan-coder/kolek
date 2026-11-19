@@ -162,12 +162,13 @@ enum DecorType {
 struct Input {
     bool left = false, right = false, up = false, down = false;
     bool lookUp = false, lookDown = false;
-    bool upPressed = false, spacePressed = false, jumpHeld = false;
+    bool spacePressed = false, jumpHeld = false;
     bool shootPressed = false;
     bool confirm = false;
     bool restart = false;
     // Навигация по меню (не переназначается).
-    bool menuUp = false, menuDown = false, back = false;
+    bool menuUp = false, menuDown = false, menuLeft = false, menuRight = false;
+    bool back = false;
 };
 
 // ---------------------------------------------------------------------------
@@ -175,43 +176,47 @@ struct Input {
 // ---------------------------------------------------------------------------
 enum ControlAction {
     CA_LEFT = 0, CA_RIGHT, CA_UP, CA_DOWN, CA_JUMP,
-    CA_AIM_UP, CA_AIM_DOWN, CA_SHOOT, CA_RESTART, CA_COUNT
+    CA_SHOOT, CA_RESTART, CA_COUNT
 };
 
+// На каждое действие можно назначить две клавиши: основную и запасную.
 struct Controls {
-    SDL_Scancode keys[CA_COUNT] = {
-        SDL_SCANCODE_A, SDL_SCANCODE_D, SDL_SCANCODE_W, SDL_SCANCODE_S,
-        SDL_SCANCODE_SPACE, SDL_SCANCODE_UP, SDL_SCANCODE_DOWN,
-        SDL_SCANCODE_LCTRL, SDL_SCANCODE_R
-    };
+    SDL_Scancode keys[CA_COUNT][2] = {};
 
     void reset()
     {
-        keys[CA_LEFT]     = SDL_SCANCODE_A;
-        keys[CA_RIGHT]    = SDL_SCANCODE_D;
-        keys[CA_UP]       = SDL_SCANCODE_W;
-        keys[CA_DOWN]     = SDL_SCANCODE_S;
-        keys[CA_JUMP]     = SDL_SCANCODE_SPACE;
-        keys[CA_AIM_UP]   = SDL_SCANCODE_UP;
-        keys[CA_AIM_DOWN] = SDL_SCANCODE_DOWN;
-        keys[CA_SHOOT]    = SDL_SCANCODE_LCTRL;
-        keys[CA_RESTART]  = SDL_SCANCODE_R;
+        for (int i = 0; i < CA_COUNT; ++i) {
+            keys[i][0] = SDL_SCANCODE_UNKNOWN;
+            keys[i][1] = SDL_SCANCODE_UNKNOWN;
+        }
+        keys[CA_LEFT][0]    = SDL_SCANCODE_A;
+        keys[CA_LEFT][1]    = SDL_SCANCODE_LEFT;
+        keys[CA_RIGHT][0]   = SDL_SCANCODE_D;
+        keys[CA_RIGHT][1]   = SDL_SCANCODE_RIGHT;
+        keys[CA_UP][0]      = SDL_SCANCODE_W;
+        keys[CA_UP][1]      = SDL_SCANCODE_UP;
+        keys[CA_DOWN][0]    = SDL_SCANCODE_S;
+        keys[CA_DOWN][1]    = SDL_SCANCODE_DOWN;
+        // W остаётся и прыжком, и движением вверх — как в прежней версии.
+        keys[CA_JUMP][0]    = SDL_SCANCODE_SPACE;
+        keys[CA_JUMP][1]    = SDL_SCANCODE_W;
+        keys[CA_SHOOT][0]   = SDL_SCANCODE_LCTRL;
+        keys[CA_SHOOT][1]   = SDL_SCANCODE_RCTRL;
+        keys[CA_RESTART][0] = SDL_SCANCODE_R;
     }
 };
 
 inline const char* controlName(int action)
 {
     switch (action) {
-        case CA_LEFT:     return "ВЛЕВО";
-        case CA_RIGHT:    return "ВПРАВО";
-        case CA_UP:       return "ВВЕРХ / ЛАЗАТЬ";
-        case CA_DOWN:     return "ВНИЗ / ЛАЗАТЬ";
-        case CA_JUMP:     return "ПРЫЖОК";
-        case CA_AIM_UP:   return "ПРИЦЕЛ ВВЕРХ";
-        case CA_AIM_DOWN: return "ПРИЦЕЛ ВНИЗ";
-        case CA_SHOOT:    return "ВЫСТРЕЛ";
-        case CA_RESTART:  return "ЗАНОВО";
-        default:          return "";
+        case CA_LEFT:    return "ВЛЕВО";
+        case CA_RIGHT:   return "ВПРАВО";
+        case CA_UP:      return "ВВЕРХ / ЛАЗАТЬ";
+        case CA_DOWN:    return "ВНИЗ / ЛАЗАТЬ";
+        case CA_JUMP:    return "ПРЫЖОК";
+        case CA_SHOOT:   return "ВЫСТРЕЛ";
+        case CA_RESTART: return "ЗАНОВО";
+        default:         return "";
     }
 }
 
@@ -504,7 +509,9 @@ struct Game {
     Controls controls;
     int menuIndex = 0;
     int settingsIndex = 0;
+    int settingsSlot = 0;         // 0 или 1 — какую из двух клавиш меняем
     int bindTarget = -1;          // действие, ждущее новую клавишу
+    int bindSlot = 0;             // слот переназначаемой клавиши
     bool quitRequested = false;   // «Выход» в главном меню
     bool persistControls = true;  // не трогать файл в служебных режимах
     int levelIndex = 0;
@@ -520,7 +527,6 @@ struct Game {
     float shootCd = 0, reloadTimer = 0, reloadDuration = RELOAD_FULL;
     float standStill = 0, muzzle = 0, gunKick = 0;
     bool prevSpacePressed = false;
-    bool prevUpPressed = false;
     bool jumpEdge = false;
 
     float camX = 0, camY = 0, timeSec = 0;
@@ -997,7 +1003,7 @@ void Game::resetWorld(int index)
     shootCd = reloadTimer = standStill = muzzle = gunKick = 0;
     reloadDuration = RELOAD_FULL;
     prevSpacePressed = false;
-    prevUpPressed = false;
+    prevSpacePressed = false;
     jumpEdge = false;
 
     parts.clear();
@@ -1027,15 +1033,15 @@ void Game::startGame()
 void Game::assignBind(SDL_Scancode sc)
 {
     if (bindTarget < 0 || bindTarget >= CA_COUNT) return;
+    if (bindSlot < 0 || bindSlot > 1) return;
     if (sc == SDL_SCANCODE_UNKNOWN || sc == SDL_SCANCODE_ESCAPE) return;
 
-    // Если клавиша уже занята, меняемся местами: двух действий на одной
-    // клавише не будет.
-    for (int i = 0; i < CA_COUNT; ++i) {
-        if (i != bindTarget && controls.keys[i] == sc)
-            controls.keys[i] = controls.keys[bindTarget];
-    }
-    controls.keys[bindTarget] = sc;
+    // Одинаковых клавиш в двух слотах одного действия не держим:
+    // назначенная клавиша меняется местами со второй.
+    int other = 1 - bindSlot;
+    if (controls.keys[bindTarget][other] == sc)
+        controls.keys[bindTarget][other] = controls.keys[bindTarget][bindSlot];
+    controls.keys[bindTarget][bindSlot] = sc;
     bindTarget = -1;
     saveControls();
 }
@@ -1049,21 +1055,39 @@ void Game::loadControls()
     std::string magic;
     int version = 0;
     if (!(f >> magic >> version)) return;
-    if (magic != "kolek-controls" || version != 1) return;
+    if (magic != "kolek-controls") return;
 
-    SDL_Scancode loaded[CA_COUNT];
-    for (int i = 0; i < CA_COUNT; ++i) {
-        int v = 0;
-        if (!(f >> v)) return;
-        if (v <= SDL_SCANCODE_UNKNOWN || v >= SDL_NUM_SCANCODES) return;
-        loaded[i] = static_cast<SDL_Scancode>(v);
+    auto valid = [](int v) {
+        return v >= static_cast<int>(SDL_SCANCODE_UNKNOWN) &&
+               v < SDL_NUM_SCANCODES &&
+               v != static_cast<int>(SDL_SCANCODE_ESCAPE);
+    };
+
+    if (version == 1) {
+        // Старый файл: по одной клавише на действие, включая отдельный прицел.
+        int oldKeys[9] = {};
+        for (int i = 0; i < 9; ++i)
+            if (!(f >> oldKeys[i]) || !valid(oldKeys[i])) return;
+        // Старые индексы: влево, вправо, вверх, вниз, прыжок, прицел↑,
+        // прицел↓, выстрел, заново. Прицел теперь идёт от движения.
+        const int map[CA_COUNT] = {0, 1, 2, 3, 4, 7, 8};
+        for (int i = 0; i < CA_COUNT; ++i) {
+            controls.keys[i][0] = static_cast<SDL_Scancode>(oldKeys[map[i]]);
+            if (controls.keys[i][1] == controls.keys[i][0])
+                controls.keys[i][1] = SDL_SCANCODE_UNKNOWN;
+        }
+        return;
     }
-    // Битый файл с повторами не применяем: остаются настройки по умолчанию.
-    for (int i = 0; i < CA_COUNT; ++i)
-        for (int j = i + 1; j < CA_COUNT; ++j)
-            if (loaded[i] == loaded[j]) return;
+    if (version != 2) return;
 
-    for (int i = 0; i < CA_COUNT; ++i) controls.keys[i] = loaded[i];
+    for (int i = 0; i < CA_COUNT; ++i) {
+        int a = 0, b = 0;
+        if (!(f >> a >> b)) return;
+        if (!valid(a) || !valid(b)) return;
+        if (a == b && a != static_cast<int>(SDL_SCANCODE_UNKNOWN)) return;
+        controls.keys[i][0] = static_cast<SDL_Scancode>(a);
+        controls.keys[i][1] = static_cast<SDL_Scancode>(b);
+    }
 }
 
 void Game::saveControls() const
@@ -1072,10 +1096,11 @@ void Game::saveControls() const
 
     std::ofstream f(configPath(), std::ios::trunc);
     if (!f) return;
-    f << "kolek-controls 1\n";
+    f << "kolek-controls 2\n";
     for (int i = 0; i < CA_COUNT; ++i) {
         if (i) f << ' ';
-        f << static_cast<int>(controls.keys[i]);
+        f << static_cast<int>(controls.keys[i][0]) << ' '
+          << static_cast<int>(controls.keys[i][1]);
     }
     f << '\n';
 }
@@ -1086,12 +1111,9 @@ void Game::saveControls() const
 void Game::update(float dt, const Input& in)
 {
     // Нажатие прыжка считаем один раз за реальное нажатие: главный цикл
-    // переиспользует один Input для нескольких подшагов физики. Пробел и W
-    // отслеживаем отдельно, чтобы удержание W не съедало нажатие пробела.
-    jumpEdge = (in.spacePressed && !prevSpacePressed) ||
-               (in.upPressed && !prevUpPressed);
+    // переиспользует один Input для нескольких подшагов физики.
+    jumpEdge = in.spacePressed && !prevSpacePressed;
     prevSpacePressed = in.spacePressed;
-    prevUpPressed = in.upPressed;
 
     timeSec += dt;
     titleBlink += dt;
@@ -1116,10 +1138,10 @@ void Game::update(float dt, const Input& in)
                 // Пробел, которым начали игру, не должен сразу превращаться в прыжок.
                 jumpEdge = false;
                 prevSpacePressed = true;
-                prevUpPressed = true;
             } else if (menuIndex == 1) {
                 state = ST_SETTINGS;
                 settingsIndex = 0;
+                settingsSlot = 0;
                 bindTarget = -1;
             } else {
                 quitRequested = true;
@@ -1134,6 +1156,10 @@ void Game::update(float dt, const Input& in)
             settingsIndex = (settingsIndex + rows - 1) % rows;
         if (in.menuDown)
             settingsIndex = (settingsIndex + 1) % rows;
+        if (settingsIndex < CA_COUNT) {
+            if (in.menuLeft) settingsSlot = 0;
+            if (in.menuRight) settingsSlot = 1;
+        }
         if (in.back) {
             state = ST_TITLE;
             menuIndex = 1;
@@ -1142,6 +1168,7 @@ void Game::update(float dt, const Input& in)
         if (in.confirm) {
             if (settingsIndex < CA_COUNT) {
                 bindTarget = settingsIndex;
+                bindSlot = settingsSlot;
             } else {
                 state = ST_TITLE;
                 menuIndex = 1;
@@ -1194,12 +1221,14 @@ void Game::updatePlayer(float dt, const Input& in)
     if (player.invuln > 0) player.invuln -= dt;
     if (player.ladderLock > 0) player.ladderLock -= dt;
 
-    // W/S и стрелки ↑/↓: на лестнице — лазание, вне её стрелки — прицел.
+    // Прицел привязан к направлению движения: вверх/вниз — по W/S и ↑/↓,
+    // горизонталь — по A/D. На лестнице эти же клавиши означают лазание.
     bool onLadder = ladderProbe(lvl, player);
     bool wantUp = in.up || in.lookUp;
     bool wantDown = in.down || in.lookDown;
-    player.lookY = (in.lookUp && !onLadder) ? -1
-                                            : ((in.lookDown && !onLadder) ? 1 : 0);
+    bool aimUp = (in.lookUp || in.up) && !onLadder;
+    bool aimDown = (in.lookDown || in.down) && !onLadder;
+    player.lookY = aimUp ? -1 : (aimDown ? 1 : 0);
 
     float ix = (in.right ? 1.0f : 0.0f) - (in.left ? 1.0f : 0.0f);
     if (reloading) ix = 0.0f;   // во время перезарядки Колян стоит на месте
@@ -1906,7 +1935,6 @@ void Game::updateDeath(float dt)
         reloadTimer = 0;
         reloadDuration = RELOAD_FULL;
         prevSpacePressed = false;
-        prevUpPressed = false;
         jumpEdge = false;
         introTimer = 20.0f;
         state = ST_PLAY;
@@ -3426,7 +3454,7 @@ void Game::drawHUD()
     // Короткая подсказка в начале — тонкая полоска без рамки.
     if (introTimer < 14.0f) {
         float a = introTimer < 11.0f ? 1.0f : clampf((14.0f - introTimer) / 3.0f, 0.0f, 1.0f);
-        std::string hint = "A/D ИДТИ  W ПРЫЖОК  ↑/↓ ПРИЦЕЛ  CTRL ВЫСТРЕЛ";
+        std::string hint = "A/D ИДТИ  W/↑ ПРИЦЕЛ ВВЕРХ  S/↓ ВНИЗ  CTRL ВЫСТРЕЛ";
         int tw = pixfont::textWidth(hint, 1);
         SDL_SetRenderDrawColor(ren, 8, 6, 10, static_cast<Uint8>(120 * a));
         SDL_Rect hp{VIEW_W / 2 - tw / 2 - 4, VIEW_H - 13, tw + 8, 10};
@@ -3488,25 +3516,32 @@ void Game::drawSettingsScreen()
 
     // золотые линейки
     SDL_SetRenderDrawColor(ren, 214, 174, 92, 140);
-    SDL_Rect l1{40, 24, VIEW_W - 80, 1};
-    SDL_Rect l2{40, 208, VIEW_W - 80, 1};
+    SDL_Rect l1{40, 20, VIEW_W - 80, 1};
+    SDL_Rect l2{40, 206, VIEW_W - 80, 1};
     SDL_RenderFillRect(ren, &l1);
     SDL_RenderFillRect(ren, &l2);
 
-    pixfont::drawTextCentered(ren, VIEW_W / 2, 32, "НАСТРОЙКИ", 2,
+    pixfont::drawTextCentered(ren, VIEW_W / 2, 26, "НАСТРОЙКИ", 2,
                               SDL_Color{255, 222, 130, 255});
-    pixfont::drawTextCentered(ren, VIEW_W / 2, 50, "УПРАВЛЕНИЕ", 1,
+    pixfont::drawTextCentered(ren, VIEW_W / 2, 44, "УПРАВЛЕНИЕ", 1,
                               SDL_Color{196, 176, 148, 255});
 
+    // Заголовки двух колонок с клавишами.
+    pixfont::drawText(ren, 386 - pixfont::textWidth("КНОПКА 1", 1), 56,
+                      "КНОПКА 1", 1, SDL_Color{170, 158, 138, 255});
+    pixfont::drawText(ren, 452 - pixfont::textWidth("КНОПКА 2", 1), 56,
+                      "КНОПКА 2", 1, SDL_Color{170, 158, 138, 255});
+
     const int rows = CA_COUNT + 1;
+    const int slotRight[2] = {386, 452};
     for (int i = 0; i < rows; ++i) {
-        int y = 66 + i * 15;
+        int y = 72 + i * 17;
         bool sel = (i == settingsIndex);
         bool waiting = (i == bindTarget);
         if (sel) {
             if (waiting) SDL_SetRenderDrawColor(ren, 84, 44, 30, 215);
             else         SDL_SetRenderDrawColor(ren, 56, 44, 24, 215);
-            SDL_Rect bg{44, y - 3, VIEW_W - 88, 13};
+            SDL_Rect bg{44, y - 3, 412, 13};
             SDL_RenderFillRect(ren, &bg);
             if (waiting) SDL_SetRenderDrawColor(ren, 230, 120, 70, 230);
             else         SDL_SetRenderDrawColor(ren, 214, 174, 92, 230);
@@ -3520,25 +3555,46 @@ void Game::drawSettingsScreen()
         pixfont::drawText(ren, 56, y, label, 1, lc);
 
         if (i < CA_COUNT) {
-            std::string key = waiting ? "НАЖМИТЕ КЛАВИШУ"
-                                      : keyLabel(controls.keys[i]);
-            SDL_Color kc = waiting ? SDL_Color{255, 190, 120, 255}
-                                   : (sel ? SDL_Color{255, 226, 150, 255}
-                                          : SDL_Color{212, 196, 170, 255});
-            pixfont::drawText(ren, 424 - pixfont::textWidth(key, 1), y, key, 1, kc);
+            for (int s = 0; s < 2; ++s) {
+                bool slotSel = sel && (s == settingsSlot);
+                bool slotWaiting = waiting && (s == bindSlot);
+                std::string key = slotWaiting ? "?"
+                                              : keyLabel(controls.keys[i][s]);
+                int tw = std::max(12, pixfont::textWidth(key, 1));
+                if (slotSel) {
+                    if (slotWaiting) SDL_SetRenderDrawColor(ren, 96, 46, 28, 235);
+                    else             SDL_SetRenderDrawColor(ren, 96, 74, 38, 235);
+                    SDL_Rect kr{slotRight[s] - tw - 4, y - 2, tw + 8, 11};
+                    SDL_RenderFillRect(ren, &kr);
+                }
+                SDL_Color kc;
+                if (slotWaiting)     kc = SDL_Color{255, 200, 130, 255};
+                else if (slotSel)    kc = SDL_Color{255, 232, 160, 255};
+                else if (controls.keys[i][s] == SDL_SCANCODE_UNKNOWN)
+                                     kc = SDL_Color{120, 110, 100, 255};
+                else                 kc = SDL_Color{212, 196, 170, 255};
+                pixfont::drawText(ren, slotRight[s] - pixfont::textWidth(key, 1),
+                                  y, key, 1, kc);
+            }
         } else {
-            pixfont::drawText(ren, 424 - pixfont::textWidth("ESC", 1), y,
+            pixfont::drawText(ren, 452 - pixfont::textWidth("ESC", 1), y,
                               "ESC", 1, sel ? SDL_Color{255, 226, 150, 255}
                                             : SDL_Color{160, 150, 138, 255});
         }
     }
 
-    pixfont::drawTextCentered(ren, VIEW_W / 2, 220,
-                              "W/S ИЛИ ↑/↓ - ВЫБОР   ENTER - СМЕНИТЬ", 1,
-                              SDL_Color{196, 176, 148, 255});
-    pixfont::drawTextCentered(ren, VIEW_W / 2, 236,
-                              "ESC - НАЗАД", 1,
-                              SDL_Color{150, 140, 128, 255});
+    if (bindTarget >= 0) {
+        pixfont::drawTextCentered(ren, VIEW_W / 2, 216,
+                                  "НАЖМИТЕ КЛАВИШУ   ESC - ОТМЕНА", 1,
+                                  SDL_Color{235, 180, 120, 255});
+    } else {
+        pixfont::drawTextCentered(ren, VIEW_W / 2, 216,
+                                  "W/S - ВЫБОР   A/D - КНОПКА 1 / 2", 1,
+                                  SDL_Color{196, 176, 148, 255});
+        pixfont::drawTextCentered(ren, VIEW_W / 2, 232,
+                                  "ENTER - СМЕНИТЬ   ESC - НАЗАД", 1,
+                                  SDL_Color{150, 140, 128, 255});
+    }
 }
 
 void Game::drawWinScreen()
@@ -4032,6 +4088,7 @@ void Game::makeScenarios()
     state = ST_SETTINGS;
     menuIndex = 1;
     settingsIndex = 4;
+    settingsSlot = 1;
     render();
     screenshot("shot_settings.bmp");
     SDL_RenderPresent(ren);
@@ -4624,7 +4681,7 @@ void Game::runSmoke()
     {
         Input in;
         in.up = true;
-        in.upPressed = true;
+        in.spacePressed = true;
         in.jumpHeld = true;
         update(1.0f / 120.0f, in);
     }
@@ -4998,9 +5055,21 @@ void Game::runSmoke()
         in.confirm = true;
         update(1.0f / 120.0f, in);
     }
-    bool bindWaiting = (bindTarget == CA_LEFT);
+    bool bindWaiting = (bindTarget == CA_LEFT && bindSlot == 0);
     assignBind(SDL_SCANCODE_Q);
-    bool menuRebind = (controls.keys[CA_LEFT] == SDL_SCANCODE_Q && bindTarget < 0);
+    bool menuRebind = (controls.keys[CA_LEFT][0] == SDL_SCANCODE_Q &&
+                       bindTarget < 0);
+
+    // Вторая клавиша того же действия.
+    settingsSlot = 1;
+    {
+        Input in;
+        in.confirm = true;
+        update(1.0f / 120.0f, in);
+    }
+    bool bindWaiting2 = (bindTarget == CA_LEFT && bindSlot == 1);
+    assignBind(SDL_SCANCODE_E);
+    bool menuRebind2 = (controls.keys[CA_LEFT][1] == SDL_SCANCODE_E);
 
     {
         Input in;
@@ -5018,12 +5087,42 @@ void Game::runSmoke()
     bool escMenu = (state == ST_TITLE);
     controls.reset();
 
+    // Прицел следует за направлением движения: вверх/вниз теми же клавишами.
+    resetWorld(0);
+    state = ST_PLAY;
+    monsters.clear();
+    player = Body{};
+    player.w = 10;
+    player.h = PLAYER_H;
+    player.x = 5 * 16.0f + 3.0f;
+    player.y = 482.0f;
+    player.facing = 1;
+    player.grounded = true;
+    {
+        Input in;
+        in.up = true;
+        update(1.0f / 120.0f, in);
+    }
+    bool moveAimUp = (player.lookY == -1);
+    {
+        Input in;
+        in.down = true;
+        update(1.0f / 120.0f, in);
+    }
+    bool moveAimDown = (player.lookY == 1);
+    update(1.0f / 120.0f, Input{});
+    bool moveAimFwd = (player.lookY == 0);
+    bool moveAimOk = moveAimUp && moveAimDown && moveAimFwd;
+
     bool menuOk = menuStart && menuSettings && bindWaiting && menuRebind &&
-                  settingsBack && escMenu;
-    SDL_Log("menu: start=%d settings=%d bind=%d rebind=%d back=%d esc=%d ok=%d",
+                  bindWaiting2 && menuRebind2 && settingsBack && escMenu &&
+                  moveAimOk;
+    SDL_Log("menu: start=%d settings=%d bind=%d/%d rebind=%d/%d "
+            "back=%d esc=%d moveaim=%d/%d/%d ok=%d",
             menuStart ? 1 : 0, menuSettings ? 1 : 0, bindWaiting ? 1 : 0,
-            menuRebind ? 1 : 0, settingsBack ? 1 : 0, escMenu ? 1 : 0,
-            menuOk ? 1 : 0);
+            bindWaiting2 ? 1 : 0, menuRebind ? 1 : 0, menuRebind2 ? 1 : 0,
+            settingsBack ? 1 : 0, escMenu ? 1 : 0, moveAimUp ? 1 : 0,
+            moveAimDown ? 1 : 0, moveAimFwd ? 1 : 0, menuOk ? 1 : 0);
 
     bool ok = startFirstFloor && doorBasement && climbed && camOk && stepHeld &&
               stairFall && spiderOk && spiderCrawl &&
@@ -5139,13 +5238,19 @@ int main(int argc, char** argv)
 
         const Uint8* ks = SDL_GetKeyboardState(nullptr);
         auto held = [&](int action) {
-            SDL_Scancode sc = game.controls.keys[action];
-            return sc != SDL_SCANCODE_UNKNOWN && ks[sc];
+            for (int s = 0; s < 2; ++s) {
+                SDL_Scancode sc = game.controls.keys[action][s];
+                if (sc != SDL_SCANCODE_UNKNOWN && ks[sc]) return true;
+            }
+            return false;
         };
         auto edge = [&](SDL_Scancode sc) { return ks[sc] && !prevKeys[sc]; };
         auto edgeAction = [&](int action) {
-            SDL_Scancode sc = game.controls.keys[action];
-            return sc != SDL_SCANCODE_UNKNOWN && edge(sc);
+            for (int s = 0; s < 2; ++s) {
+                SDL_Scancode sc = game.controls.keys[action][s];
+                if (sc != SDL_SCANCODE_UNKNOWN && edge(sc)) return true;
+            }
+            return false;
         };
 
         Input in;
@@ -5153,22 +5258,25 @@ int main(int argc, char** argv)
         in.right = held(CA_RIGHT);
         in.up = held(CA_UP);
         in.down = held(CA_DOWN);
-        in.lookUp = held(CA_AIM_UP);
-        in.lookDown = held(CA_AIM_DOWN);
-        in.jumpHeld = held(CA_JUMP) || held(CA_UP);
+        // Прицел идёт за направлением движения: вверх/вниз — те же клавиши.
+        in.lookUp = in.up;
+        in.lookDown = in.down;
+        in.jumpHeld = held(CA_JUMP);
 
-        in.upPressed = edgeAction(CA_UP);
         in.spacePressed = edgeAction(CA_JUMP);
         in.shootPressed = edgeAction(CA_SHOOT);
         in.restart = edgeAction(CA_RESTART);
         // Меню всегда ходит на W/S и стрелках, подтверждение — Enter/Space,
-        // назад — Esc.
+        // в настройках A/D и ←/→ выбирают одну из двух кнопок, назад — Esc.
         in.menuUp = edge(SDL_SCANCODE_W) || edge(SDL_SCANCODE_UP);
         in.menuDown = edge(SDL_SCANCODE_S) || edge(SDL_SCANCODE_DOWN);
+        in.menuLeft = edge(SDL_SCANCODE_A) || edge(SDL_SCANCODE_LEFT);
+        in.menuRight = edge(SDL_SCANCODE_D) || edge(SDL_SCANCODE_RIGHT);
         in.confirm = edge(SDL_SCANCODE_RETURN) || edge(SDL_SCANCODE_SPACE);
         in.back = edge(SDL_SCANCODE_ESCAPE);
         if (swallowMenu)
-            in.menuUp = in.menuDown = in.confirm = in.back = false;
+            in.menuUp = in.menuDown = in.menuLeft = in.menuRight =
+                in.confirm = in.back = false;
 
         memcpy(prevKeys, ks, SDL_NUM_SCANCODES);
 
@@ -5182,7 +5290,8 @@ int main(int argc, char** argv)
         while (accumulator >= fixedStep && guard < 8) {
             Input stepIn = in;
             if (!firstStep)
-                stepIn.menuUp = stepIn.menuDown = stepIn.confirm = stepIn.back = false;
+                stepIn.menuUp = stepIn.menuDown = stepIn.menuLeft =
+                    stepIn.menuRight = stepIn.confirm = stepIn.back = false;
             game.update(static_cast<float>(fixedStep), stepIn);
             firstStep = false;
             accumulator -= fixedStep;
