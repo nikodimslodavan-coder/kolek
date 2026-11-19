@@ -41,7 +41,7 @@ constexpr int   PELLET_COUNT   = 7;      // дробин в залпе
 constexpr float SHOT_SPREAD    = 0.032f; // шаг разброса: крайние дроби уходят на ~±5.5°
 constexpr float RECOIL_KICK    = 180.0f; // отдача толкает Коляна назад
 constexpr int   START_LIVES    = 3;
-constexpr float KNIFE_SPEED    = 52.0f;  // нож летит медленно: игрок быстрее втрое
+constexpr float KNIFE_SPEED    = 69.2f;  // +33% к прежним 52 px/s; Колян вдвое быстрее
 constexpr float DEATH_TIME     = 2.6f;   // пауза с анимацией смерти
 constexpr float CHASE_RADIUS   = 34.0f;  // «два шага» до Коляна
 constexpr float PLAYER_H       = 30.0f;  // Колян в полтора раза выше прежнего
@@ -4518,7 +4518,7 @@ void Game::runSmoke()
             spiderCrawl ? 1 : 0);
     monsters.clear();
 
-    // 2b. Метатель ножей: медленный нож долетает и убивает.
+    // 2b. Метатель ножей: ускоренный нож долетает и убивает.
     player = Body{};
     player.w = 10;
     player.h = PLAYER_H;
