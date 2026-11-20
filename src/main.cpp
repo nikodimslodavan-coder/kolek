@@ -1139,10 +1139,7 @@ void Game::update(float dt, const Input& in)
             menuIndex = (menuIndex + 2) % 3;
         if (in.menuDown)
             menuIndex = (menuIndex + 1) % 3;
-        if (in.back) {
-            quitRequested = true;
-            return;
-        }
+        // Esc в главном меню ничего не делает: игру закрывает только «Выход».
         if (in.confirm) {
             if (menuIndex == 0) {
                 startGame();
@@ -3551,7 +3548,7 @@ void Game::drawTitleScreen()
                               "W/S ИЛИ ↑/↓ - ВЫБОР   ENTER - ОК", 1,
                               SDL_Color{196, 176, 148, 255});
     pixfont::drawTextCentered(ren, VIEW_W / 2, 248,
-                              "ESC - ВЫХОД   F11 - ПОЛНЫЙ ЭКРАН", 1,
+                              "F11 - ПОЛНЫЙ ЭКРАН", 1,
                               SDL_Color{150, 140, 128, 255});
 }
 
@@ -5237,6 +5234,25 @@ void Game::runSmoke()
         update(1.0f / 120.0f, in);
     }
     bool escMenu = (state == ST_TITLE);
+
+    // Esc в главном меню ничего не закрывает: игра остаётся открытой.
+    {
+        Input in;
+        in.back = true;
+        update(1.0f / 120.0f, in);
+    }
+    bool escNoQuit = (state == ST_TITLE && !quitRequested);
+
+    // Закрыть игру может только пункт «Выход».
+    menuIndex = 2;
+    {
+        Input in;
+        in.confirm = true;
+        update(1.0f / 120.0f, in);
+    }
+    bool exitQuits = quitRequested;
+    quitRequested = false;
+    menuIndex = 0;
     controls.reset();
 
     // Прицел следует за направлением движения: вверх/вниз теми же клавишами.
@@ -5268,12 +5284,13 @@ void Game::runSmoke()
 
     bool menuOk = menuStart && menuSettings && bindWaiting && menuRebind &&
                   bindWaiting2 && menuRebind2 && settingsBack && escMenu &&
-                  moveAimOk;
+                  escNoQuit && exitQuits && moveAimOk;
     SDL_Log("menu: start=%d settings=%d bind=%d/%d rebind=%d/%d "
-            "back=%d esc=%d moveaim=%d/%d/%d ok=%d",
+            "back=%d esc=%d escnoquit=%d exit=%d moveaim=%d/%d/%d ok=%d",
             menuStart ? 1 : 0, menuSettings ? 1 : 0, bindWaiting ? 1 : 0,
             bindWaiting2 ? 1 : 0, menuRebind ? 1 : 0, menuRebind2 ? 1 : 0,
-            settingsBack ? 1 : 0, escMenu ? 1 : 0, moveAimUp ? 1 : 0,
+            settingsBack ? 1 : 0, escMenu ? 1 : 0, escNoQuit ? 1 : 0,
+            exitQuits ? 1 : 0, moveAimUp ? 1 : 0,
             moveAimDown ? 1 : 0, moveAimFwd ? 1 : 0, menuOk ? 1 : 0);
 
     bool ok = startFirstFloor && doorBasement && climbed && camOk && stepHeld &&
