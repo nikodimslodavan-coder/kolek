@@ -854,12 +854,15 @@ void Game::resetWorld(int index)
         // первый этаж — полная копия
         for (size_t i = 0; i < n; ++i)
             decor.push_back(Decor{decor[i].tx, decor[i].ty + 17, decor[i].type});
-        // подвал — без окон, портретов и зеркал
+        // подвал — без окон, портретов и зеркал; он вдвое ниже, поэтому
+        // украшения, вылезающие за его пол, отбрасываем
         if (levelIndex == 0) {
             for (size_t i = 0; i < n; ++i) {
                 int t = decor[i].type;
                 if (t == DEC_WINDOW || t == DEC_PAINTING || t == DEC_MIRROR) continue;
-                decor.push_back(Decor{decor[i].tx, decor[i].ty + 34, t});
+                int by = decor[i].ty + 34;
+                if (by > lvl.h - 3) continue;
+                decor.push_back(Decor{decor[i].tx, by, t});
             }
         }
     }
@@ -952,9 +955,12 @@ void Game::resetWorld(int index)
         for (size_t i = 0; i < n; ++i)
             rugs.push_back(RectF{rugs[i].x, rugs[i].y + 272.0f, rugs[i].w, rugs[i].h});
         if (levelIndex == 0) {
+            // Подвал укорочен: ковры лежат на его полу, а не на прежнем 49-м ряду.
+            const float basementFloorY = (lvl.h - 2) * TILE;
             for (size_t i = 0; i < n; ++i)
                 if (rugs[i].y == 240.0f)
-                    rugs.push_back(RectF{rugs[i].x, rugs[i].y + 544.0f, rugs[i].w, rugs[i].h});
+                    rugs.push_back(RectF{rugs[i].x, basementFloorY,
+                                         rugs[i].w, rugs[i].h});
         }
     }
 
@@ -4192,7 +4198,7 @@ void Game::makeScenarios()
         monsters.clear();
         if (found) {
             thrower.b.x = 120 * 16.0f;
-            thrower.b.y = 49 * 16.0f - thrower.b.h;
+            thrower.b.y = 42 * 16.0f - thrower.b.h;
             thrower.homeX = thrower.b.x;
             thrower.homeY = thrower.b.y;
             thrower.b.facing = -1;
@@ -4201,7 +4207,7 @@ void Game::makeScenarios()
         }
     }
     player.x = 110 * 16.0f;
-    player.y = 49 * 16.0f - PLAYER_H;
+    player.y = 42 * 16.0f - PLAYER_H;
     player.facing = 1;
     player.vx = player.vy = 0;
     player.grounded = true;
@@ -4345,7 +4351,7 @@ void Game::makeScenarios()
         }
     }
     player.x = 150 * 16.0f;
-    player.y = 49 * 16.0f - PLAYER_H;
+    player.y = 42 * 16.0f - PLAYER_H;
     player.vx = player.vy = 0;
     player.grounded = true;
     player.facing = 1;
@@ -4454,8 +4460,8 @@ void Game::runSmoke()
     monsters.clear();
 
     bool startFirstFloor = std::fabs((player.y + player.h) - 32 * 16.0f) < 1.0f;
-    bool doorBasement = (door.w > 0 && door.y >= 46 * 16.0f - 0.1f &&
-                         door.y + door.h >= 49 * 16.0f - 0.1f &&
+    bool doorBasement = (door.w > 0 && door.y >= 39 * 16.0f - 0.1f &&
+                         door.y + door.h >= 42 * 16.0f - 0.1f &&
                          door.x > 150 * 16.0f);
     SDL_Log("start: feet=%.1f firstfloor=%d; door: x=%.0f y=%.0f basement=%d",
             player.y + player.h, startFirstFloor ? 1 : 0, door.x, door.y,
@@ -4476,7 +4482,7 @@ void Game::runSmoke()
     player.w = 10;
     player.h = PLAYER_H;
     player.x = 48 * 16.0f + 3.0f;
-    player.y = 49 * 16.0f - PLAYER_H;
+    player.y = 42 * 16.0f - PLAYER_H;
     player.facing = 1;
     snapCamera();
 
@@ -5097,7 +5103,7 @@ void Game::runSmoke()
     }
     cupsGot = static_cast<int>(cups.size());
     player.x = 2496.0f;
-    player.y = 754.0f;   // дверь теперь в подвале, на полу row 49
+    player.y = 42 * 16.0f - PLAYER_H;   // дверь теперь в подвале, на полу row 42
     player.vx = player.vy = 0;
     player.grounded = true;
     player.facing = 1;
