@@ -3551,7 +3551,7 @@ void Game::drawTitleScreen()
                               "W/S ИЛИ ↑/↓ - ВЫБОР   ENTER - ОК", 1,
                               SDL_Color{196, 176, 148, 255});
     pixfont::drawTextCentered(ren, VIEW_W / 2, 248,
-                              "ESC - ВЫХОД ИЗ ИГРЫ", 1,
+                              "ESC - ВЫХОД   F11 - ПОЛНЫЙ ЭКРАН", 1,
                               SDL_Color{150, 140, 128, 255});
 }
 
@@ -5376,6 +5376,18 @@ int main(int argc, char** argv)
         SDL_Event ev;
         while (SDL_PollEvent(&ev)) {
             if (ev.type == SDL_QUIT) running = false;
+            // F11 — полный экран. Клавиша зарезервирована и не участвует
+            // в переназначении управления.
+            if (ev.type == SDL_KEYDOWN &&
+                ev.key.keysym.scancode == SDL_SCANCODE_F11 && !ev.key.repeat) {
+                Uint32 flags = SDL_GetWindowFlags(win);
+                bool fullscreen = (flags & SDL_WINDOW_FULLSCREEN) != 0;
+                if (SDL_SetWindowFullscreen(
+                        win, fullscreen ? 0 : SDL_WINDOW_FULLSCREEN_DESKTOP) != 0) {
+                    SDL_Log("SDL_SetWindowFullscreen failed: %s", SDL_GetError());
+                }
+                continue;
+            }
             if (ev.type == SDL_KEYDOWN && game.bindTarget >= 0) {
                 SDL_Scancode sc = ev.key.keysym.scancode;
                 if (sc == SDL_SCANCODE_ESCAPE) {
