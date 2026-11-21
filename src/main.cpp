@@ -46,13 +46,17 @@ constexpr float DEATH_TIME     = 2.6f;   // пауза с анимацией с�
 constexpr float CHASE_RADIUS   = 34.0f;  // «два шага» до Коляна
 constexpr float PLAYER_H       = 30.0f;  // Колян в полтора раза выше прежнего
 
+// DEV-чит: Ctrl+R создаёт секретную дверь в выбор уровней.
+// Перед релизом достаточно поставить false и убрать экран выбора.
+constexpr bool DEV_SECRET_LEVELS = true;
+
 constexpr int   CUP_SCORE      = 1000;   // кубок-трофей
 constexpr int   KILL_SCORE[3]  = {200, 100, 300};   // паук, зомби, метатель ножей
 constexpr int   JEWEL_SCORE[3] = {200, 400, 600};   // три вида украшений
 
 enum GameState {
     ST_TITLE = 0, ST_PLAY = 1, ST_WIN = 2, ST_DYING = 3, ST_GAMEOVER = 4,
-    ST_SETTINGS = 5, ST_SLIDE = 6
+    ST_SETTINGS = 5, ST_SLIDE = 6, ST_LEVEL_SELECT = 7
 };
 enum DeathCause { DEATH_SPIDER = 0, DEATH_ZOMBIE = 1, DEATH_KNIFE = 2 };
 
@@ -165,6 +169,7 @@ struct Input {
     bool shootPressed = false;
     bool confirm = false;
     bool restart = false;
+    bool secretDoor = false;   // DEV: Ctrl+R — секретная дверь
     // Навигация по меню (не переназначается).
     bool menuUp = false, menuDown = false, menuLeft = false, menuRight = false;
     bool back = false;
@@ -518,6 +523,11 @@ struct Game {
     std::vector<std::string> slideTexts;
     int slideIndex = 0;
     int slideNextLevel = -1;
+
+    // DEV: секретная дверь и экран выбора уровня (Ctrl+R).
+    RectF secretDoor{};
+    bool secretDoorActive = false;
+    int levelSelectIndex = 0;
     int levelIndex = 0;
     int cupsGot = 0;
     int kills = 0;
@@ -569,6 +579,7 @@ struct Game {
     void checkDoor(float dt);
     void advanceLevel();
     void beginSlides(int nextLevel);
+    void toggleSecretDoor();
     void respawnPlayer();
     void killPlayer(int cause);
     void fireShot(const Input& in);
@@ -606,6 +617,7 @@ struct Game {
     void drawMirror(int wx, int wy);
     void drawClock(int wx, int wy);
     void drawDoor();
+    void drawSecretDoor();
     void drawCups();
     void drawJewelry();
     void drawJewelIcon(int x, int y, int type, float bob);
@@ -625,6 +637,7 @@ struct Game {
     void drawTitleScreen();
     void drawSettingsScreen();
     void drawSlideScreen();
+    void drawLevelSelectScreen();
     void drawWinScreen();
     void drawGameOverScreen();
 
@@ -710,6 +723,9 @@ bool Game::init(SDL_Renderer* r)
 
 void Game::resetWorld(int index)
 {
+    secretDoorActive = false;
+    secretDoor = RectF{};
+
     levelIndex = std::max(0, std::min(index, LEVEL_COUNT - 1));
     lvl.load(LEVEL_MAPS[levelIndex]);
 
@@ -1014,7 +1030,6 @@ void Game::resetWorld(int index)
     shootCd = reloadTimer = standStill = muzzle = gunKick = 0;
     reloadDuration = RELOAD_FULL;
     prevSpacePressed = false;
-    prevSpacePressed = false;
     jumpEdge = false;
 
     parts.clear();
@@ -1184,6 +1199,29 @@ void Game::update(float dt, const Input& in)
         }
         return;
     }
+    if (state == ST_LEVEL_SELECT) {
+        // DEV: выбор уровня из секретной двери.
+        if (in.menuUp)
+            levelSelectIndex = (levelSelectIndex + LEVEL_COUNT - 1) % LEVEL_COUNT;
+        if (in.menuDown)
+            levelSelectIndex = (levelSelectIndex + 1) % LEVEL_COUNT;
+        if (in.back) {
+            secretDoorActive = false;
+            state = ST_PLAY;
+            return;
+        }
+        if (in.confirm) {
+            secretDoorActive = false;
+            kills = 0;
+            score = 0;
+            lives = START_LIVES;
+            deathTimer = 0;
+            resetWorld(levelSelectIndex);
+            state = ST_PLAY;
+            return;
+        }
+        return;
+    }
     if (state == ST_SLIDE) {
         if (in.confirm || in.back) {
             ++slideIndex;
@@ -1225,6 +1263,8 @@ void Game::update(float dt, const Input& in)
         titleBlink = 0;
         return;
     }
+    if (DEV_SECRET_LEVELS && in.secretDoor)
+        toggleSecretDoor();
     if (in.restart) {
         startGame();
         return;
@@ -1237,6 +1277,17 @@ void Game::update(float dt, const Input& in)
     checkPickups();
     checkDoor(dt);
     updateCamera(dt);
+
+    // DEV: вход в секретную дверь открывает выбор уровня.
+    if (DEV_SECRET_LEVELS && secretDoorActive &&
+        overlapRect(player.x, player.y, player.w, player.h,
+                    secretDoor.x, secretDoor.y, secretDoor.w, secretDoor.h)) {
+        secretDoorActive = false;
+        levelSelectIndex = levelIndex;
+        state = ST_LEVEL_SELECT;
+        return;
+    }
+
     introTimer += dt;
 }
 
@@ -1931,6 +1982,61 @@ void Game::beginSlides(int nextLevel)
     }
 }
 
+void Game::toggleSecretDoor()
+{
+    if (!DEV_SECRET_LEVELS) return;
+
+    // Повторное Ctrl+R убирает дверь.
+    if (secretDoorActive) {
+        secretDoorActive = false;
+        return;
+    }
+
+    auto support = [&](int tx, int ty) {
+        return lvl.solid(tx, ty) || lvl.stepTile(tx, ty);
+    };
+
+    int dir = (player.facing >= 0) ? 1 : -1;
+    int baseTx = static_cast<int>((player.x + player.w * 0.5f) / TILE);
+    int feetRow = static_cast<int>((player.y + player.h + 1.0f) / TILE);
+    feetRow = std::max(0, std::min(feetRow, lvl.h - 1));
+
+    bool placed = false;
+    for (int d = 2; d <= 6 && !placed; ++d) {
+        int tx = baseTx + dir * d;
+        if (tx <= 0 || tx >= lvl.w - 1) continue;
+
+        int fy = feetRow;
+        while (fy < lvl.h && !support(tx, fy)) ++fy;
+        if (fy >= lvl.h) continue;
+
+        bool clear = true;
+        for (int k = 1; k <= 3; ++k)
+            if (fy - k < 0 || support(tx, fy - k)) clear = false;
+        if (!clear) continue;
+
+        secretDoor = RectF{static_cast<float>(tx * TILE),
+                           static_cast<float>((fy - 3) * TILE),
+                           static_cast<float>(TILE), static_cast<float>(3 * TILE)};
+        placed = true;
+    }
+
+    if (!placed) {
+        // Если впереди стена или обрыв — ставим дверь прямо перед Коляном.
+        float x = player.x + player.w * 0.5f + dir * 28.0f - 8.0f;
+        float y = player.y + player.h - 3 * TILE;
+        secretDoor = RectF{x, y, TILE, 3 * TILE};
+    }
+
+    secretDoorActive = true;
+    spawnSparkle(secretDoor.x + secretDoor.w * 0.5f,
+                 secretDoor.y + secretDoor.h * 0.5f, 18,
+                 SDL_Color{90, 230, 245, 255});
+    shake = std::max(shake, 0.12f);
+    SDL_Log("devdoor: spawned at %.0f,%.0f level=%d", secretDoor.x,
+            secretDoor.y, levelIndex + 1);
+}
+
 void Game::respawnPlayer()
 {
     player.x = checkpoint.x;
@@ -2067,6 +2173,7 @@ void Game::render()
     drawRugs();
     drawDecor();
     drawDoor();
+    drawSecretDoor();
     drawCups();
     drawJewelry();
     drawMonsters();
@@ -2094,6 +2201,8 @@ void Game::render()
         drawSettingsScreen();
     } else if (state == ST_SLIDE) {
         drawSlideScreen();
+    } else if (state == ST_LEVEL_SELECT) {
+        drawLevelSelectScreen();
     } else if (state == ST_PLAY) {
         drawHUD();
     } else if (state == ST_DYING) {
@@ -2803,6 +2912,53 @@ void Game::drawDoor()
     SDL_RenderFillRect(ren, &sign);
     SDL_SetRenderDrawColor(ren, 42, 28, 18, 255);
     SDL_RenderDrawLine(ren, x + w / 2 - 7, y - 8, x + w / 2 + 7, y - 8);
+}
+
+void Game::drawSecretDoor()
+{
+    if (!DEV_SECRET_LEVELS || !secretDoorActive) return;
+
+    int x = sx(secretDoor.x);
+    int y = sy(secretDoor.y);
+    int w = static_cast<int>(secretDoor.w);
+    int h = static_cast<int>(secretDoor.h);
+    if (x < -80 || x > VIEW_W + 40) return;
+
+    float pulse = 0.5f + 0.5f * std::sin(timeSec * 4.2f);
+
+    // каменный портал
+    SDL_SetRenderDrawColor(ren, 18, 26, 36, 255);
+    SDL_Rect frame{x - 3, y - 3, w + 6, h + 6};
+    SDL_RenderFillRect(ren, &frame);
+
+    // светящийся проём
+    for (int i = 0; i < 4; ++i) {
+        int inset = 2 + i * 2;
+        Uint8 a = static_cast<Uint8>(150 - i * 30 + pulse * 40);
+        SDL_SetRenderDrawColor(ren, 70 + i * 25, 210 - i * 20,
+                               235 - i * 15, a);
+        SDL_Rect glow{x + inset, y + inset, w - inset * 2, h - inset * 2};
+        SDL_RenderFillRect(ren, &glow);
+    }
+
+    // золотая окантовка
+    SDL_SetRenderDrawColor(ren, 210, 176, 92, 255);
+    SDL_Rect top{x + 2, y + 1, w - 4, 2};
+    SDL_Rect left{x + 1, y + 4, 2, h - 6};
+    SDL_Rect right{x + w - 3, y + 4, 2, h - 6};
+    SDL_RenderFillRect(ren, &top);
+    SDL_RenderFillRect(ren, &left);
+    SDL_RenderFillRect(ren, &right);
+
+    // ручка и знак секрета
+    fillCircle(x + w / 2, y + h / 2, 2, SDL_Color{240, 230, 170, 255});
+    fillCircle(x + w / 2, y + h / 2, 1, SDL_Color{80, 230, 245, 255});
+    fillTriangle(x + w / 2, y - 12, x + w / 2 - 5, y - 6,
+                 x + w / 2 + 5, y - 6, SDL_Color{90, 230, 245, 255});
+
+    addLight(secretDoor.x + secretDoor.w * 0.5f,
+             secretDoor.y + secretDoor.h * 0.5f, 70.0f,
+             SDL_Color{80, 220, 240, 255}, 110.0f + 50.0f * pulse);
 }
 
 void Game::drawCups()
@@ -3679,6 +3835,58 @@ void Game::drawSlideScreen()
     }
 }
 
+void Game::drawLevelSelectScreen()
+{
+    // DEV: экран выбора уровня за секретной дверью.
+    SDL_SetRenderDrawColor(ren, 6, 4, 8, 238);
+    SDL_RenderFillRect(ren, nullptr);
+
+    SDL_SetRenderDrawColor(ren, 90, 220, 240, 160);
+    SDL_Rect l1{54, 54, VIEW_W - 108, 1};
+    SDL_Rect l2{54, 212, VIEW_W - 108, 1};
+    SDL_RenderFillRect(ren, &l1);
+    SDL_RenderFillRect(ren, &l2);
+
+    pixfont::drawTextCentered(ren, VIEW_W / 2, 28, "DEV: ВЫБОР УРОВНЯ", 2,
+                              SDL_Color{140, 236, 250, 255});
+    pixfont::drawTextCentered(ren, VIEW_W / 2, 48,
+                              "СЕКРЕТНАЯ ДВЕРЬ — ТОЛЬКО ДЛЯ РАЗРАБОТКИ", 1,
+                              SDL_Color{150, 140, 128, 255});
+
+    for (int i = 0; i < LEVEL_COUNT; ++i) {
+        bool sel = (i == levelSelectIndex);
+        int y = 104 + i * 40;
+
+        if (sel) {
+            SDL_SetRenderDrawColor(ren, 30, 74, 88, 220);
+            SDL_Rect hl{VIEW_W / 2 - 150, y - 8, 300, 30};
+            SDL_RenderFillRect(ren, &hl);
+            SDL_SetRenderDrawColor(ren, 100, 224, 240, 255);
+            SDL_Rect hlTop{VIEW_W / 2 - 150, y - 8, 300, 1};
+            SDL_Rect hlBot{VIEW_W / 2 - 150, y + 21, 300, 1};
+            SDL_RenderFillRect(ren, &hlTop);
+            SDL_RenderFillRect(ren, &hlBot);
+        }
+
+        std::string label =
+            "УРОВЕНЬ " + std::to_string(i + 1) + " — ЭТАЖ " +
+            std::to_string(i + 1) + "/" + std::to_string(LEVEL_COUNT);
+        pixfont::drawTextCentered(ren, VIEW_W / 2, y,
+                                  label, sel ? 2 : 1,
+                                  sel ? SDL_Color{255, 236, 170, 255}
+                                      : SDL_Color{176, 166, 150, 255});
+    }
+
+    pixfont::drawTextCentered(ren, VIEW_W / 2, 196,
+                              "W/S ИЛИ ↑/↓ - ВЫБОР", 1,
+                              SDL_Color{196, 176, 148, 255});
+    pixfont::drawTextCentered(ren, VIEW_W / 2, 226,
+                              "ENTER - ЗАГРУЗИТЬ   ESC - НАЗАД В ИГРУ", 1,
+                              SDL_Color{150, 140, 128, 255});
+
+    pixfont::drawText(ren, 8, 8, "DEV", 1, SDL_Color{90, 220, 240, 255});
+}
+
 void Game::drawWinScreen()
 {
     SDL_SetRenderDrawColor(ren, 8, 10, 26, 150);
@@ -4368,6 +4576,23 @@ void Game::makeScenarios()
     slideIndex = 1;
     render();
     screenshot("shot_slide2.bmp");
+    SDL_RenderPresent(ren);
+
+    // 5c — DEV: секретная дверь и экран выбора уровня
+    resetWorld(0);
+    state = ST_PLAY;
+    player.facing = 1;
+    toggleSecretDoor();
+    introTimer = 20.0f;
+    snapCamera();
+    render();
+    screenshot("shot_devdoor.bmp");
+    SDL_RenderPresent(ren);
+
+    state = ST_LEVEL_SELECT;
+    levelSelectIndex = 1;
+    render();
+    screenshot("shot_levelselect.bmp");
     SDL_RenderPresent(ren);
 
     // 6 — второй уровень: винтовая шахта-зигзаг на нижнем этаже
@@ -5293,6 +5518,33 @@ void Game::runSmoke()
             exitQuits ? 1 : 0, moveAimUp ? 1 : 0,
             moveAimDown ? 1 : 0, moveAimFwd ? 1 : 0, menuOk ? 1 : 0);
 
+    // DEV-чит: Ctrl+R создаёт дверь, вход в неё открывает выбор уровня,
+    // подтверждение загружает выбранный уровень.
+    resetWorld(0);
+    state = ST_PLAY;
+    secretDoorActive = false;
+    toggleSecretDoor();
+    bool devDoorSpawned = secretDoorActive && secretDoor.w > 0.0f;
+
+    player.x = secretDoor.x + 2.0f;
+    player.y = secretDoor.y + secretDoor.h - player.h;
+    player.vx = player.vy = 0;
+    player.grounded = true;
+    update(1.0f / 120.0f, Input{});
+    bool devDoorOpens = (state == ST_LEVEL_SELECT);
+
+    levelSelectIndex = 1;
+    {
+        Input in;
+        in.confirm = true;
+        update(1.0f / 120.0f, in);
+    }
+    bool devSelectLoads = (state == ST_PLAY && levelIndex == 1);
+    bool devSecretOk = devDoorSpawned && devDoorOpens && devSelectLoads;
+    SDL_Log("devsecret: door=%d open=%d load=%d ok=%d",
+            devDoorSpawned ? 1 : 0, devDoorOpens ? 1 : 0,
+            devSelectLoads ? 1 : 0, devSecretOk ? 1 : 0);
+
     bool ok = startFirstFloor && doorBasement && climbed && camOk && stepHeld &&
               stairFall && spiderOk && spiderCrawl &&
               gotCup && killScore && popupOk && jewelScore &&
@@ -5306,7 +5558,7 @@ void Game::runSmoke()
               lookForward && reloadOk && reloadWaitHeld && reloadStarted &&
               reloadProportional && reloadLocked &&
               reloadDone && dying && respawned && gameOver && slidesOk &&
-              level2 && level2Stairs && won && menuOk;
+              level2 && level2Stairs && won && menuOk && devSecretOk;
     SDL_Log("smoke %s", ok ? "OK" : "FAIL");
 }
 
@@ -5456,6 +5708,13 @@ int main(int argc, char** argv)
         in.menuRight = edge(SDL_SCANCODE_D) || edge(SDL_SCANCODE_RIGHT);
         in.confirm = edge(SDL_SCANCODE_RETURN) || edge(SDL_SCANCODE_SPACE);
         in.back = edge(SDL_SCANCODE_ESCAPE);
+        // DEV: Ctrl+R создаёт секретную дверь. R по умолчанию занята
+        // перезапуском, поэтому с зажатым Ctrl перезапуск не срабатывает.
+        if (DEV_SECRET_LEVELS) {
+            bool ctrlHeld = ks[SDL_SCANCODE_LCTRL] || ks[SDL_SCANCODE_RCTRL];
+            in.secretDoor = ctrlHeld && edge(SDL_SCANCODE_R);
+            if (in.secretDoor) in.restart = false;
+        }
         if (swallowMenu)
             in.menuUp = in.menuDown = in.menuLeft = in.menuRight =
                 in.confirm = in.back = false;
@@ -5471,9 +5730,11 @@ int main(int argc, char** argv)
         bool firstStep = true;
         while (accumulator >= fixedStep && guard < 8) {
             Input stepIn = in;
-            if (!firstStep)
+            if (!firstStep) {
                 stepIn.menuUp = stepIn.menuDown = stepIn.menuLeft =
                     stepIn.menuRight = stepIn.confirm = stepIn.back = false;
+                stepIn.secretDoor = false;
+            }
             game.update(static_cast<float>(fixedStep), stepIn);
             firstStep = false;
             accumulator -= fixedStep;
