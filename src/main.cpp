@@ -171,6 +171,161 @@ struct Input {
 };
 
 // ---------------------------------------------------------------------------
+//  Экранные кнопки для Android
+// ---------------------------------------------------------------------------
+enum TouchButton {
+    TB_LEFT = 0, TB_RIGHT, TB_UP, TB_DOWN, TB_JUMP, TB_SHOOT,
+    TB_BACK, TB_RESTART, TB_COUNT
+};
+
+// Мультитач-состояние виртуальных кнопок. Кнопки живут в логических
+// координатах 480x272 и рисуются поверх игры, поэтому они одинаково
+// выглядят на любом телефоне и не зависят от плотности экрана.
+struct TouchControls {
+    bool enabled = false;
+    bool mouseFallback = true;
+    bool held[TB_COUNT] = {};
+    bool pressed[TB_COUNT] = {};
+    int  fingerButton[64] = {};
+    SDL_Rect rect[TB_COUNT] = {};
+    uint32_t visibleMask = 0;
+
+    TouchControls()
+    {
+        for (int i = 0; i < 64; ++i) fingerButton[i] = -1;
+        // Левая часть — крестовина.
+        rect[TB_UP]    = SDL_Rect{ 66, 152, 44, 32 };
+        rect[TB_LEFT]  = SDL_Rect{ 18, 188, 44, 42 };
+        rect[TB_RIGHT] = SDL_Rect{118, 188, 44, 42 };
+        rect[TB_DOWN]  = SDL_Rect{ 66, 234, 44, 28 };
+        // Правая часть — прыжок и выстрел.
+        rect[TB_JUMP]  = SDL_Rect{356, 178, 56, 60 };
+        rect[TB_SHOOT] = SDL_Rect{418, 196, 48, 56 };
+        // Служебные кнопки: «МЕНЮ» ниже панели патронов.
+        rect[TB_BACK]    = SDL_Rect{438,  26, 34, 20 };
+        rect[TB_RESTART] = SDL_Rect{184, 238, 112, 26 };
+    }
+
+    bool visible(int b) const
+    {
+        return (visibleMask & (1u << static_cast<unsigned>(b))) != 0;
+    }
+
+    void setVisibleForState(int state)
+    {
+        uint32_t m = 0;
+        auto add = [&](int b) { m |= 1u << static_cast<unsigned>(b); };
+        switch (state) {
+            case ST_TITLE:
+                add(TB_UP); add(TB_DOWN); add(TB_SHOOT); add(TB_BACK);
+                break;
+            case ST_SETTINGS:
+                add(TB_UP); add(TB_DOWN); add(TB_LEFT); add(TB_RIGHT);
+                add(TB_SHOOT); add(TB_BACK);
+                break;
+            case ST_SLIDE:
+                add(TB_SHOOT); add(TB_BACK);
+                break;
+            case ST_WIN:
+            case ST_GAMEOVER:
+                add(TB_RESTART); add(TB_BACK);
+                break;
+            case ST_PLAY:
+            case ST_DYING:
+            default:
+                add(TB_LEFT); add(TB_RIGHT); add(TB_UP); add(TB_DOWN);
+                add(TB_JUMP); add(TB_SHOOT); add(TB_BACK);
+                break;
+        }
+        visibleMask = m;
+        // Кнопки, которые исчезли вместе с экраном, отпускаем.
+        for (int i = 0; i < 64; ++i) {
+            int b = fingerButton[i];
+            if (b >= 0 && !visible(b)) fingerButton[i] = -1;
+        }
+    }
+
+    int buttonAt(float lx, float ly) const
+    {
+        for (int b = 0; b < TB_COUNT; ++b) {
+            if (!visible(b)) continue;
+            const SDL_Rect& r = rect[b];
+            if (lx >= r.x && lx < r.x + r.w &&
+                ly >= r.y && ly < r.y + r.h)
+                return b;
+        }
+        return -1;
+    }
+
+    void beginFrame()
+    {
+        for (int b = 0; b < TB_COUNT; ++b) pressed[b] = false;
+    }
+
+    void endEvents()
+    {
+        bool now[TB_COUNT] = {};
+        for (int i = 0; i < 64; ++i) {
+            int b = fingerButton[i];
+            if (b >= 0 && visible(b)) now[b] = true;
+        }
+        for (int b = 0; b < TB_COUNT; ++b) held[b] = now[b];
+    }
+
+    void setFinger(int id, float lx, float ly)
+    {
+        if (id < 0 || id >= 64) return;
+        int b = buttonAt(lx, ly);
+        fingerButton[id] = b;
+        // Нажатие засчитываем сразу, а не в конце кадра: быстрый тап
+        // (down и up между двумя кадрами) иначе терялся бы.
+        if (b >= 0 && !held[b]) pressed[b] = true;
+    }
+
+    // SDL_RenderSetLogicalSize не только вписывает кадр 480x272 в окно, но и
+    // сам пересчитывает координаты касаний и мыши в систему логического кадра:
+    // tfinger приходит в 0..1 по видимой области, mouse — сразу в пикселях
+    // 480x272. Поэтому здесь никакого дополнительного масштабирования не нужно.
+    void handleEvent(const SDL_Event& ev, int winW, int winH)
+    {
+        if (!enabled || winW <= 0 || winH <= 0) return;
+
+        if (ev.type == SDL_FINGERDOWN || ev.type == SDL_FINGERMOTION ||
+            ev.type == SDL_FINGERUP) {
+            float lx = ev.tfinger.x * VIEW_W;
+            float ly = ev.tfinger.y * VIEW_H;
+            int id = static_cast<int>(ev.tfinger.fingerId);
+            if (ev.type == SDL_FINGERUP) {
+                if (id >= 0 && id < 64) fingerButton[id] = -1;
+            } else {
+                setFinger(id, lx, ly);
+            }
+            mouseFallback = false;
+        } else if (mouseFallback &&
+                   (ev.type == SDL_MOUSEBUTTONDOWN ||
+                    ev.type == SDL_MOUSEMOTION ||
+                    ev.type == SDL_MOUSEBUTTONUP)) {
+            // На десктопе с --touch кнопки удобно проверять мышью.
+            float lx = 0, ly = 0;
+            if (ev.type == SDL_MOUSEMOTION) {
+                if (!(ev.motion.state & SDL_BUTTON_LMASK)) return;
+                lx = static_cast<float>(ev.motion.x);
+                ly = static_cast<float>(ev.motion.y);
+            } else {
+                if (ev.type == SDL_MOUSEBUTTONUP) {
+                    fingerButton[0] = -1;
+                    return;
+                }
+                if (ev.button.button != SDL_BUTTON_LEFT) return;
+                lx = static_cast<float>(ev.button.x);
+                ly = static_cast<float>(ev.button.y);
+            }
+            setFinger(0, lx, ly);
+        }
+    }
+};
+
+// ---------------------------------------------------------------------------
 //  Управление
 // ---------------------------------------------------------------------------
 enum ControlAction {
@@ -221,6 +376,17 @@ inline const char* controlName(int action)
 
 inline std::string configPath()
 {
+#ifdef KOLEK_ANDROID
+    // SDL_GetBasePath() на Android возвращает NULL, а корень "/" недоступен
+    // для записи. Раскладку храним во внутреннем каталоге приложения.
+    char* pref = SDL_GetPrefPath("kolek", "diamond");
+    if (pref) {
+        std::string path = pref;
+        SDL_free(pref);
+        path += "kolek.cfg";
+        return path;
+    }
+#endif
     std::string path;
     char* base = SDL_GetBasePath();
     if (base) {
@@ -506,6 +672,7 @@ struct Game {
     RectF checkpoint{};
     int state = ST_TITLE;
     Controls controls;
+    TouchControls touch;
     int menuIndex = 0;
     int settingsIndex = 0;
     int settingsSlot = 0;         // 0 или 1 — какую из двух клавиш меняем
@@ -621,6 +788,7 @@ struct Game {
     void drawVignette();
     void drawScorePopups();
     void drawHUD();
+    void drawTouchControls();
     void drawDeathOverlay();
     void drawTitleScreen();
     void drawSettingsScreen();
@@ -2106,6 +2274,8 @@ void Game::render()
         SDL_SetRenderDrawColor(ren, 190, 40, 40, static_cast<Uint8>(hurtFlash * 90.0f));
         SDL_RenderFillRect(ren, nullptr);
     }
+
+    drawTouchControls();
 }
 
 void Game::fillW(float wx, float wy, float ww, float hh, SDL_Color c)
@@ -3494,7 +3664,9 @@ void Game::drawHUD()
     // Короткая подсказка в начале — тонкая полоска без рамки.
     if (introTimer < 14.0f) {
         float a = introTimer < 11.0f ? 1.0f : clampf((14.0f - introTimer) / 3.0f, 0.0f, 1.0f);
-        std::string hint = "A/D ИДТИ  W/↑ ПРИЦЕЛ ВВЕРХ  S/↓ ВНИЗ  CTRL ВЫСТРЕЛ";
+        std::string hint = touch.enabled
+            ? "СЛЕВА - ИДТИ И ЛАЗАТЬ   СПРАВА - ПРЫЖОК И ОГОНЬ"
+            : "A/D ИДТИ  W/↑ ПРИЦЕЛ ВВЕРХ  S/↓ ВНИЗ  CTRL ВЫСТРЕЛ";
         int tw = pixfont::textWidth(hint, 1);
         SDL_SetRenderDrawColor(ren, 8, 6, 10, static_cast<Uint8>(120 * a));
         SDL_Rect hp{VIEW_W / 2 - tw / 2 - 4, VIEW_H - 13, tw + 8, 10};
@@ -3503,6 +3675,49 @@ void Game::drawHUD()
                           SDL_Color{220, 205, 180, static_cast<Uint8>(210 * a)},
                           false);
     }
+}
+
+void Game::drawTouchControls()
+{
+    if (!touch.enabled) return;
+    touch.setVisibleForState(state);
+
+    auto button = [&](int b, const char* label, int labelScale) {
+        if (!touch.visible(b)) return;
+        const SDL_Rect& r = touch.rect[b];
+        bool down = touch.held[b];
+        SDL_SetRenderDrawColor(ren, 14, 10, 16, down ? 190 : 120);
+        SDL_RenderFillRect(ren, &r);
+        SDL_SetRenderDrawColor(ren,
+                               down ? 255 : 226,
+                               down ? 216 : 202,
+                               down ? 150 : 176,
+                               down ? 245 : 170);
+        SDL_RenderDrawRect(ren, &r);
+        SDL_Rect inner{r.x + 2, r.y + 2, r.w - 4, r.h - 4};
+        SDL_RenderDrawRect(ren, &inner);
+        if (label && *label) {
+            int th = 7 * labelScale;
+            pixfont::drawTextCentered(ren, r.x + r.w / 2,
+                                      r.y + (r.h - th) / 2, label, labelScale,
+                                      down ? SDL_Color{255, 240, 190, 255}
+                                           : SDL_Color{232, 220, 196, 235},
+                                      false);
+        }
+    };
+
+    // В меню выстрел превращается в кнопку подтверждения.
+    bool inMenu = (state == ST_TITLE || state == ST_SETTINGS ||
+                   state == ST_SLIDE || state == ST_WIN ||
+                   state == ST_GAMEOVER);
+    button(TB_UP, "↑", 2);
+    button(TB_DOWN, "↓", 2);
+    button(TB_LEFT, "←", 2);
+    button(TB_RIGHT, "→", 2);
+    button(TB_JUMP, "ПРЫЖОК", 1);
+    button(TB_SHOOT, inMenu ? "ОК" : "ОГОНЬ", inMenu ? 2 : 1);
+    button(TB_BACK, "МЕНЮ", 1);
+    button(TB_RESTART, "ЗАНОВО", 1);
 }
 
 void Game::drawTitleScreen()
@@ -3542,10 +3757,12 @@ void Game::drawTitleScreen()
     }
 
     pixfont::drawTextCentered(ren, VIEW_W / 2, 232,
-                              "W/S ИЛИ ↑/↓ - ВЫБОР   ENTER - ОК", 1,
+                              touch.enabled ? "↑/↓ - ВЫБОР   ОК - ПОДТВЕРДИТЬ"
+                                         : "W/S ИЛИ ↑/↓ - ВЫБОР   ENTER - ОК", 1,
                               SDL_Color{196, 176, 148, 255});
     pixfont::drawTextCentered(ren, VIEW_W / 2, 248,
-                              "ESC - ВЫХОД ИЗ ИГРЫ", 1,
+                              touch.enabled ? "МЕНЮ - ВЫХОД ИЗ ИГРЫ"
+                                         : "ESC - ВЫХОД ИЗ ИГРЫ", 1,
                               SDL_Color{150, 140, 128, 255});
 }
 
@@ -3617,22 +3834,29 @@ void Game::drawSettingsScreen()
                                   y, key, 1, kc);
             }
         } else {
-            pixfont::drawText(ren, 452 - pixfont::textWidth("ESC", 1), y,
-                              "ESC", 1, sel ? SDL_Color{255, 226, 150, 255}
-                                            : SDL_Color{160, 150, 138, 255});
+            const char* backKey = touch.enabled ? "МЕНЮ" : "ESC";
+            pixfont::drawText(ren, 452 - pixfont::textWidth(backKey, 1), y,
+                              backKey, 1, sel ? SDL_Color{255, 226, 150, 255}
+                                              : SDL_Color{160, 150, 138, 255});
         }
     }
 
     if (bindTarget >= 0) {
         pixfont::drawTextCentered(ren, VIEW_W / 2, 216,
-                                  "НАЖМИТЕ КЛАВИШУ   ESC - ОТМЕНА", 1,
+                                  touch.enabled
+                                      ? "НАЖМИТЕ КЛАВИШУ   МЕНЮ - ОТМЕНА"
+                                      : "НАЖМИТЕ КЛАВИШУ   ESC - ОТМЕНА", 1,
                                   SDL_Color{235, 180, 120, 255});
     } else {
         pixfont::drawTextCentered(ren, VIEW_W / 2, 216,
-                                  "W/S - ВЫБОР   A/D - КНОПКА 1 / 2", 1,
+                                  touch.enabled
+                                      ? "↑/↓ - ВЫБОР   ←/→ - КНОПКА 1 / 2"
+                                      : "W/S - ВЫБОР   A/D - КНОПКА 1 / 2", 1,
                                   SDL_Color{196, 176, 148, 255});
         pixfont::drawTextCentered(ren, VIEW_W / 2, 232,
-                                  "ENTER - СМЕНИТЬ   ESC - НАЗАД", 1,
+                                  touch.enabled
+                                      ? "ОК - СМЕНИТЬ   МЕНЮ - НАЗАД"
+                                      : "ENTER - СМЕНИТЬ   ESC - НАЗАД", 1,
                                   SDL_Color{150, 140, 128, 255});
     }
 }
@@ -3671,7 +3895,8 @@ void Game::drawSlideScreen()
 
     if (std::fmod(titleBlink, 1.15f) < 0.78f) {
         pixfont::drawTextCentered(ren, VIEW_W / 2, 240,
-                                  "ENTER - ДАЛЬШЕ", 1,
+                                  touch.enabled ? "ОК - ДАЛЬШЕ"
+                                             : "ENTER - ДАЛЬШЕ", 1,
                                   SDL_Color{235, 210, 160, 255});
     }
 }
@@ -3694,7 +3919,9 @@ void Game::drawWinScreen()
                               SDL_Color{230, 220, 200, 255});
 
     if (std::fmod(titleBlink, 1.15f) < 0.78f) {
-        pixfont::drawTextCentered(ren, VIEW_W / 2, 192, "R - ИГРАТЬ СНОВА", 2,
+        pixfont::drawTextCentered(ren, VIEW_W / 2, 192,
+                                  touch.enabled ? "ЗАНОВО - НОВАЯ ИГРА"
+                                             : "R - ИГРАТЬ СНОВА", 2,
                                   SDL_Color{255, 232, 170, 255});
     }
     std::string stats = "КУБКИ 3/3   ОЧКИ: " + std::to_string(score) +
@@ -4116,7 +4343,9 @@ void Game::drawGameOverScreen()
                               SDL_Color{180, 168, 152, 255});
 
     if (std::fmod(titleBlink, 1.15f) < 0.78f) {
-        pixfont::drawTextCentered(ren, VIEW_W / 2, 210, "R - ЗАНОВО", 2,
+        pixfont::drawTextCentered(ren, VIEW_W / 2, 210,
+                                  touch.enabled ? "ЗАНОВО - СНАЧАЛА"
+                                             : "R - ЗАНОВО", 2,
                                   SDL_Color{255, 226, 140, 255});
     }
 }
@@ -5296,9 +5525,16 @@ int main(int argc, char** argv)
 {
     bool screens = false;
     bool smoke = false;
+#ifdef KOLEK_ANDROID
+    bool touchUi = true;
+#else
+    bool touchUi = false;
+#endif
     for (int i = 1; i < argc; ++i) {
         if (strcmp(argv[i], "--screens") == 0) screens = true;
         if (strcmp(argv[i], "--smoke") == 0) smoke = true;
+        if (strcmp(argv[i], "--touch") == 0) touchUi = true;
+        if (strcmp(argv[i], "--no-touch") == 0) touchUi = false;
     }
 
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_TIMER) != 0) {
@@ -5306,7 +5542,16 @@ int main(int argc, char** argv)
         return 1;
     }
 
+    SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "nearest");
+#ifdef KOLEK_ANDROID
+    SDL_SetHint(SDL_HINT_ORIENTATIONS, "LandscapeLeft LandscapeRight");
+#endif
+
     Uint32 winFlags = SDL_WINDOW_RESIZABLE;
+#ifdef KOLEK_ANDROID
+    // На телефоне окно всегда занимает весь экран.
+    winFlags = SDL_WINDOW_FULLSCREEN;
+#endif
     winFlags |= (screens || smoke) ? SDL_WINDOW_HIDDEN : SDL_WINDOW_SHOWN;
     SDL_Window* win = SDL_CreateWindow(
         "Апартаменты Даймонд — Колян",
@@ -5330,9 +5575,20 @@ int main(int argc, char** argv)
     }
 
     SDL_RenderSetLogicalSize(ren, VIEW_W, VIEW_H);
+#ifdef KOLEK_ANDROID
+    // На телефонах дробный масштаб заполняет экран заметно лучше.
+    SDL_RenderSetIntegerScale(ren, SDL_FALSE);
+#else
     SDL_RenderSetIntegerScale(ren, SDL_TRUE);
+#endif
 
     Game game;
+    game.touch.enabled = touchUi && !smoke;
+#ifdef KOLEK_ANDROID
+    game.touch.mouseFallback = false;   // на телефоне не дублируем касания мышью
+#else
+    game.touch.mouseFallback = true;    // --touch удобно проверять мышью
+#endif
     if (screens || smoke) game.persistControls = false;
     if (!game.init(ren)) {
         SDL_DestroyRenderer(ren);
@@ -5367,9 +5623,22 @@ int main(int argc, char** argv)
 
     while (running) {
         bool swallowMenu = false;
+        bool backQueued = false;
+        game.touch.setVisibleForState(game.state);
+        game.touch.beginFrame();
+        int winW = 0, winH = 0;
+        SDL_GetWindowSize(win, &winW, &winH);
+
         SDL_Event ev;
         while (SDL_PollEvent(&ev)) {
             if (ev.type == SDL_QUIT) running = false;
+            game.touch.handleEvent(ev, winW, winH);
+            // Системная кнопка «Назад» может быть нажата и отпущена между
+            // двумя кадрами. Запоминаем сам факт нажатия, а не состояние.
+            if (ev.type == SDL_KEYDOWN &&
+                ev.key.keysym.scancode == SDL_SCANCODE_AC_BACK &&
+                !ev.key.repeat)
+                backQueued = true;
             if (ev.type == SDL_KEYDOWN && game.bindTarget >= 0) {
                 SDL_Scancode sc = ev.key.keysym.scancode;
                 if (sc == SDL_SCANCODE_ESCAPE) {
@@ -5381,6 +5650,13 @@ int main(int argc, char** argv)
                 // сработать как навигация по меню в этом же кадре.
                 swallowMenu = true;
             }
+        }
+        game.touch.endEvents();
+        // На Android нет физической клавиатуры: переназначение можно
+        // отменить экранной кнопкой «МЕНЮ».
+        if (game.bindTarget >= 0 && game.touch.pressed[TB_BACK]) {
+            game.bindTarget = -1;
+            swallowMenu = true;
         }
 
         const Uint8* ks = SDL_GetKeyboardState(nullptr);
@@ -5400,27 +5676,35 @@ int main(int argc, char** argv)
             return false;
         };
 
+        const TouchControls& tc = game.touch;
         Input in;
-        in.left = held(CA_LEFT);
-        in.right = held(CA_RIGHT);
-        in.up = held(CA_UP);
-        in.down = held(CA_DOWN);
+        in.left = held(CA_LEFT) || tc.held[TB_LEFT];
+        in.right = held(CA_RIGHT) || tc.held[TB_RIGHT];
+        in.up = held(CA_UP) || tc.held[TB_UP];
+        in.down = held(CA_DOWN) || tc.held[TB_DOWN];
         // Прицел идёт за направлением движения: вверх/вниз — те же клавиши.
         in.lookUp = in.up;
         in.lookDown = in.down;
-        in.jumpHeld = held(CA_JUMP);
+        in.jumpHeld = held(CA_JUMP) || tc.held[TB_JUMP];
 
-        in.spacePressed = edgeAction(CA_JUMP);
-        in.shootPressed = edgeAction(CA_SHOOT);
-        in.restart = edgeAction(CA_RESTART);
-        // Меню всегда ходит на W/S и стрелках, подтверждение — Enter/Space,
-        // в настройках A/D и ←/→ выбирают одну из двух кнопок, назад — Esc.
-        in.menuUp = edge(SDL_SCANCODE_W) || edge(SDL_SCANCODE_UP);
-        in.menuDown = edge(SDL_SCANCODE_S) || edge(SDL_SCANCODE_DOWN);
-        in.menuLeft = edge(SDL_SCANCODE_A) || edge(SDL_SCANCODE_LEFT);
-        in.menuRight = edge(SDL_SCANCODE_D) || edge(SDL_SCANCODE_RIGHT);
-        in.confirm = edge(SDL_SCANCODE_RETURN) || edge(SDL_SCANCODE_SPACE);
-        in.back = edge(SDL_SCANCODE_ESCAPE);
+        in.spacePressed = edgeAction(CA_JUMP) || tc.pressed[TB_JUMP];
+        in.shootPressed = edgeAction(CA_SHOOT) || tc.pressed[TB_SHOOT];
+        in.restart = edgeAction(CA_RESTART) || tc.pressed[TB_RESTART];
+        // Меню всегда ходит на W/S и стрелках, подтверждение — Enter/Space
+        // или экранная кнопка «ОК», в настройках A/D и ←/→ выбирают одну из
+        // двух кнопок, назад — Esc, Android-кнопка «назад» или «МЕНЮ».
+        in.menuUp = edge(SDL_SCANCODE_W) || edge(SDL_SCANCODE_UP) ||
+                    tc.pressed[TB_UP];
+        in.menuDown = edge(SDL_SCANCODE_S) || edge(SDL_SCANCODE_DOWN) ||
+                      tc.pressed[TB_DOWN];
+        in.menuLeft = edge(SDL_SCANCODE_A) || edge(SDL_SCANCODE_LEFT) ||
+                      tc.pressed[TB_LEFT];
+        in.menuRight = edge(SDL_SCANCODE_D) || edge(SDL_SCANCODE_RIGHT) ||
+                       tc.pressed[TB_RIGHT];
+        in.confirm = edge(SDL_SCANCODE_RETURN) || edge(SDL_SCANCODE_SPACE) ||
+                     tc.pressed[TB_SHOOT];
+        in.back = edge(SDL_SCANCODE_ESCAPE) ||
+                  backQueued || tc.pressed[TB_BACK];
         if (swallowMenu)
             in.menuUp = in.menuDown = in.menuLeft = in.menuRight =
                 in.confirm = in.back = false;

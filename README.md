@@ -6,7 +6,8 @@
 монстров и уходит через парадную дверь.
 
 C++17 + SDL2. Никаких картинок, шрифтов и звуков — вся графика рисуется кодом
-(прямоугольники, треугольники и пиксельный шрифт 5x7).
+(прямоугольники, треугольники и пиксельный шрифт 5x7). Игра собирается под
+Windows, Ubuntu/Linux и Android; на телефоне появляются экранные кнопки.
 
 ![Титульный экран](screenshots/shot_title.png)
 
@@ -116,6 +117,21 @@ C++17 + SDL2. Никаких картинок, шрифтов и звуков �
 подтверждение. В «Настройках» `A`/`D` или `←`/`→` выбирают одну из двух
 клавиш, `Enter` запускает переназначение, `Esc` возвращает назад.
 
+### Android
+
+На телефоне игра запускается в полноэкранном ландшафтном режиме, а поверх неё
+рисуются полупрозрачные кнопки:
+
+- слева крестовина — идти влево/вправо, лазать и прицеливаться вверх/вниз;
+- справа `ПРЫЖОК` и `ОГОНЬ` (в меню эта же кнопка работает как `ОК`);
+- сверху справа `МЕНЮ` — выход в главное меню; системная кнопка «Назад»
+  на Android делает то же самое;
+- в меню, настройках и слайдах крестовина и `ОК` листают пункты, а `МЕНЮ`
+  возвращает назад; на экранах победы и поражения появляется `ЗАНОВО`.
+
+Экранные кнопки не зависят от раскладки клавиатуры. Физическую клавиатуру
+Android тоже поддерживает.
+
 Соберите **3 кубка** на этаже, затем идите к парадной двери. Монстры убивают
 с одного касания (нож — тоже): у Коляна три жизни, после смерти он возвращается
 к последнему взятому кубку (или на старт уровня, если кубков ещё нет), кубки и
@@ -126,38 +142,167 @@ C++17 + SDL2. Никаких картинок, шрифтов и звуков �
 
 ## Сборка
 
-### Windows (MSYS2 UCRT64) — проще всего
+Нужны компилятор C++17 и SDL2 2.x. Для Android дополнительно требуются JDK 17,
+Android SDK и NDK — подробности ниже.
 
-В терминале MSYS2 UCRT64:
+### Windows — настольная версия
+
+Проще всего собрать в MSYS2 UCRT64. Установите MSYS2, откройте терминал
+**MSYS2 UCRT64** и выполните:
 
 ```bash
-pacman -S mingw-w64-ucrt-x86_64-gcc mingw-w64-ucrt-x86_64-SDL2
+pacman -Syu
+pacman -S mingw-w64-ucrt-x86_64-gcc mingw-w64-ucrt-x86_64-SDL2 \
+          mingw-w64-ucrt-x86_64-cmake mingw-w64-ucrt-x86_64-ninja
 ```
 
-Затем в папке проекта (PowerShell или cmd):
+Затем перейдите в папку проекта и запустите сборку:
+
+```bash
+cd /c/путь/к/kolek
+./build.bat
+./mansion.exe
+```
+
+`build.bat` использует `pkg-config`, компилирует `src/main.cpp` и кладёт
+`SDL2.dll` рядом с `mansion.exe`. Если запускаете его из PowerShell или cmd,
+добавьте в `PATH` каталог `C:\msys64\ucrt64\bin` (там лежат `g++.exe` и
+`pkg-config.exe`) либо запускайте из терминала MSYS2 UCRT64.
+
+То же самое через CMake:
 
 ```bat
-build.bat
-mansion.exe
-```
-
-`build.bat` использует `pkg-config` и кладёт `SDL2.dll` рядом с exe.
-
-### CMake
-
-```bash
 cmake -S . -B build -G Ninja
 cmake --build build
-./build/mansion.exe
+build\mansion.exe
 ```
 
-### Linux
+### Ubuntu / Linux — настольная версия
 
 ```bash
-sudo apt install build-essential libsdl2-dev
-g++ -std=c++17 -O2 -Isrc src/main.cpp -o mansion $(pkg-config --cflags --libs sdl2)
+sudo apt update
+sudo apt install build-essential cmake ninja-build libsdl2-dev
+cmake -S . -B build -G Ninja
+cmake --build build
+./build/mansion
+```
+
+Можно и одной командой без CMake:
+
+```bash
+g++ -std=c++17 -O2 -Isrc src/main.cpp -o mansion \
+    $(pkg-config --cflags --libs sdl2)
 ./mansion
 ```
+
+Полезные ключи: `./mansion --smoke` — автоматическая проверка игры,
+`./mansion --touch` — посмотреть экранные кнопки на компьютере.
+
+### Android
+
+Android-проект лежит в каталоге `android/`. Он собирает и игру, и SDL2 из
+исходников, поэтому отдельная SDL2 для телефона не нужна.
+
+Что установить через SDK Manager в Android Studio (или `sdkmanager`):
+
+- **SDK Platform 35** (Android 15);
+- **NDK 26.1.10909125** (версия указана в `android/app/build.gradle`);
+- **CMake 3.22.1** или новее;
+- **JDK 17** (Android Studio ставит его вместе с собой).
+
+#### Ubuntu — командная строка
+
+Установите JDK и утилиты Android SDK:
+
+```bash
+sudo apt install openjdk-17-jdk unzip curl
+
+# Скачайте command-line tools с developer.android.com, распакуйте в:
+#   ~/Android/Sdk/cmdline-tools/latest
+export ANDROID_HOME="$HOME/Android/Sdk"
+export JAVA_HOME="/usr/lib/jvm/java-17-openjdk-amd64"
+export PATH="$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$PATH"
+
+yes | sdkmanager --licenses
+sdkmanager "platform-tools" "platforms;android-35" \
+           "build-tools;35.0.0" "ndk;26.1.10909125" "cmake;3.22.1"
+```
+
+Сборка и установка на подключённый по USB телефон (включена отладка по USB):
+
+```bash
+cd android
+./gradlew assembleDebug
+adb install -r app/build/outputs/apk/debug/app-debug.apk
+```
+
+Либо сразу `./gradlew installDebug` — Gradle сам найдёт устройство через adb.
+APK после сборки: `android/app/build/outputs/apk/debug/app-debug.apk`.
+
+#### Windows — Android Studio
+
+1. Установите Android Studio.
+2. В **SDK Manager → SDK Platforms** отметьте Android 15 (API 35), в
+   **SDK Tools** — NDK 26.1.10909125 и CMake.
+3. Откройте в Android Studio папку **`android`** (не корень проекта) и
+   дождитесь синхронизации Gradle.
+4. Подключите телефон с включённой отладкой по USB и нажмите **Run**, либо
+   соберите APK: **Build → Build Bundle(s) / APK(s) → Build APK(s)**.
+
+Через PowerShell без Android Studio (нужны установленные SDK/NDK/JDK 17):
+
+```powershell
+$env:ANDROID_HOME = "$env:LOCALAPPDATA\Android\Sdk"
+$env:JAVA_HOME = "C:\Program Files\Android\Android Studio\jbr"
+$env:Path = "$env:ANDROID_HOME\platform-tools;$env:Path"
+
+cd android
+.\gradlew.bat assembleDebug
+adb install -r app\build\outputs\apk\debug\app-debug.apk
+```
+
+Если Gradle не видит SDK, создайте `android/local.properties`:
+
+```properties
+sdk.dir=C\:\\Users\\ИМЯ\\AppData\\Local\\Android\\Sdk
+```
+
+#### SDL2 для Android и сборка без сети
+
+При первой сборке CMake сам скачивает SDL2 2.32.10 с GitHub. Если нужна
+офлайн-сборка, скачайте SDL2 заранее:
+
+```bash
+# Ubuntu
+./android/fetch-sdl2.sh
+```
+
+```powershell
+# Windows
+powershell -ExecutionPolicy Bypass -File android\fetch-sdl2.ps1
+```
+
+Скрипт положит исходники в `android/SDL2`, Gradle подхватит их автоматически.
+Можно указать и произвольный путь:
+
+```bash
+./gradlew assembleDebug -PSDL2_DIR=/path/to/SDL2-2.32.10
+```
+
+Если установлена другая версия NDK, поменяйте `ndkVersion` в
+`android/app/build.gradle`. Минимальная версия Android — 5.0 (API 21).
+
+#### Выпуск APK
+
+```bash
+cd android
+./gradlew assembleRelease
+```
+
+Готовый APK будет в `android/app/build/outputs/apk/release/`. Перед установкой
+на телефон его нужно подписать (`apksigner` или Android Studio → **Generate
+Signed Bundle / APK**). Для быстрой проверки на телефоне достаточно
+`assembleDebug`/`installDebug`.
 
 ## Где что лежит
 
@@ -167,8 +312,11 @@ src/level.h    — две карты уровней (ASCII)
 src/font.h     — пиксельный шрифт 5x7 и перенос текста
 screenshots/   — скриншоты игры
 kolek.cfg      — сохранённая раскладка клавиш (создаётся в игре)
-CMakeLists.txt
-build.bat
+CMakeLists.txt — общая сборка для Windows/Linux и Android (для Android — libmain.so)
+build.bat      — быстрая сборка для Windows/MinGW
+android/       — Gradle-проект Android-приложения
+  app/         — манифест, ресурсы, Java-часть SDLActivity
+  fetch-sdl2.sh / .ps1 — офлайн-загрузка исходников SDL2
 ```
 
 ### Карта
