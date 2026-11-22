@@ -1,0 +1,74 @@
+plugins {
+    id 'com.android.application'
+}
+
+// SDL2 можно положить в android/SDL2 (см. android/fetch-sdl2.sh) или указать
+// путь через -PSDL2_DIR=... / переменную окружения SDL2_DIR.
+// Если путь не найден, CMake скачает SDL2 2.32.10 сам.
+def sdl2Dir = null
+if (project.hasProperty('SDL2_DIR')) {
+    sdl2Dir = file(project.property('SDL2_DIR'))
+} else if (System.getenv('SDL2_DIR')) {
+    sdl2Dir = file(System.getenv('SDL2_DIR'))
+} else {
+    def bundled = rootProject.file('SDL2')
+    if (bundled.exists()) sdl2Dir = bundled
+}
+
+android {
+    namespace 'com.kolek.diamond'
+    compileSdk 35
+    ndkVersion '26.1.10909125'
+
+    defaultConfig {
+        applicationId 'com.kolek.diamond'
+        minSdk 21
+        targetSdk 35
+        versionCode 1
+        versionName '1.0'
+
+        externalNativeBuild {
+            cmake {
+                // SDL2 2.32 объявляет cmake_minimum_required ниже 3.5,
+                // а CMake 4 это уже запрещает.
+                arguments '-DCMAKE_POLICY_VERSION_MINIMUM=3.5'
+                if (sdl2Dir != null) {
+                    arguments "-DKOLEK_SDL2_ROOT=${sdl2Dir.absolutePath}"
+                }
+                abiFilters 'arm64-v8a', 'armeabi-v7a', 'x86_64'
+            }
+        }
+        ndk {
+            abiFilters 'arm64-v8a', 'armeabi-v7a', 'x86_64'
+        }
+    }
+
+    externalNativeBuild {
+        cmake {
+            path file('../../CMakeLists.txt')
+        }
+    }
+
+    buildTypes {
+        debug {
+            debuggable true
+        }
+        release {
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android.txt'),
+                          'proguard-rules.pro'
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    lint {
+        abortOnError false
+    }
+}
+
+dependencies {
+}

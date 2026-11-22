@@ -7,3 +7,17 @@ kolek.cfg
 
 # экспортированные патчи коммитов
 commit/
+
+# Android
+android/.gradle/
+android/.idea/
+android/build/
+android/local.properties
+android/app/.gradle/
+android/app/.idea/
+android/app/build/
+android/app/.cxx/
+android/app/local.properties
+android/.cxx/
+android/SDL2/
+*.apk
