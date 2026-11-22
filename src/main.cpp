@@ -39,6 +39,7 @@ constexpr float RELOAD_WAIT    = 1.00f;  // секунда полной непо
 constexpr float SHOT_RANGE     = 640.0f; // выстрел на всю длину экрана
 constexpr int   PELLET_COUNT   = 7;      // дробин в залпе
 constexpr float SHOT_SPREAD    = 0.032f; // шаг разброса: крайние дроби уходят на ~±5.5°
+constexpr float AIM_DIAG       = 0.5235987756f; // 30°: наклон прицела вверх/вниз
 constexpr float RECOIL_KICK    = 180.0f; // отдача толкает Коляна назад
 constexpr int   START_LIVES    = 3;
 constexpr float BULLET_SPEED  = 69.2f * 1.2f;  // +20% к прежним 69.2 px/s
@@ -1504,9 +1505,9 @@ void Game::fireShot(const Input& in)
     gunKick = 0.14f;
 
     // Мгновенное попадание: дробь летит лучами на всю длину экрана.
-    // Прицел вверх/вниз поворачивает дробовик на 45 градусов,
+    // Прицел вверх/вниз поворачивает дробовик на 30 градусов,
     // а каждая дробина уходит под своим углом внутри конуса разброса.
-    float aimAng = player.lookY * 0.7853981634f;
+    float aimAng = player.lookY * AIM_DIAG;
     float dirX = player.facing * std::cos(aimAng);
     float dirY = std::sin(aimAng);
     float shoulderX = player.x + player.w * 0.5f + player.facing * 1.0f;
@@ -3510,7 +3511,7 @@ void Game::drawGuy(const Body& b, const Palette& p)
     SDL_RenderFillRect(ren, &brow);
 
     // дробовик в руках: ствол поворачивается по диагонали вместе со взглядом
-    float aimAng = b.lookY * 0.7853981634f;
+    float aimAng = b.lookY * AIM_DIAG;
     float ax = b.facing * std::cos(aimAng);
     float ay = std::sin(aimAng);
     float kick = (gunKick > 0.0f) ? (gunKick / 0.14f) * 1.5f : 0.0f;
@@ -3616,7 +3617,7 @@ void Game::drawGlows()
     addLight(player.x + player.w * 0.5f, player.y + player.h * 0.6f,
              46.0f, SDL_Color{255, 200, 140, 255}, 24.0f);
     if (muzzle > 0.0f) {
-        float aimAng = player.lookY * 0.7853981634f;
+        float aimAng = player.lookY * AIM_DIAG;
         float dirX = player.facing * std::cos(aimAng);
         float dirY = std::sin(aimAng);
         float tipX = player.x + player.w * 0.5f + player.facing * 1.0f + dirX * 9.0f;
@@ -4771,7 +4772,7 @@ void Game::makeScenarios()
         m.b.w = 14;
         m.b.h = 26;
         m.b.x = player.x + 45.0f;
-        m.b.y = player.y - 45.0f;
+        m.b.y = player.y - 20.0f;
         m.b.facing = -1;
         m.hp = m.maxHp = 20;
         m.homeX = m.b.x;
@@ -5542,7 +5543,7 @@ void Game::runSmoke()
         m.b.w = 14;
         m.b.h = 26;
         m.b.x = player.x + 45.0f;
-        m.b.y = player.y - 45.0f;
+        m.b.y = player.y - 20.0f;
         m.b.facing = -1;
         m.hp = m.maxHp = 20;
         m.homeX = m.b.x;
@@ -5580,7 +5581,7 @@ void Game::runSmoke()
         m.b.w = 14;
         m.b.h = 26;
         m.b.x = player.x + 50.0f;
-        m.b.y = player.y + 50.0f;
+        m.b.y = player.y + 30.0f;
         m.b.facing = -1;
         m.hp = m.maxHp = 20;
         m.homeX = m.b.x;
