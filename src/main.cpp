@@ -4377,7 +4377,7 @@ void Game::drawDeathOverlay()
             }
         }
 
-        // рука братка с битой летит по дуге от правого верхнего угла к затылку
+        // бита сама летит по дуге от правого верхнего угла к затылку
         int startX = panel.x + 112, startY = panel.y - 12;
         int ctrlX = panel.x + 94, ctrlY = panel.y - 14;
         int endX = px + 46, endY = py + 10;
@@ -4386,7 +4386,7 @@ void Game::drawDeathOverlay()
                                   u * u * endX);
         int hy = static_cast<int>(inv * inv * startY + 2.0f * inv * u * ctrlY +
                                   u * u * endY);
-        // после удара браток отдёргивает руку, выпуская голову
+        // после удара бита отлетает, выпуская голову
         float retract = clampf((t - 1.02f) / 0.45f, 0.0f, 1.0f);
         hx += static_cast<int>(18.0f * retract);
         hy -= static_cast<int>(6.0f * retract);
@@ -4395,27 +4395,15 @@ void Game::drawDeathOverlay()
             hy += static_cast<int>(std::cos(t * 47.0f));
         }
 
-        // плечо и предплечье в чёрной куртке
-        int shoulderX = panel.x + 112, shoulderY = panel.y + 84;
-        int elbowX = panel.x + 80, elbowY = panel.y + 10;
-        limb(shoulderX, shoulderY, elbowX, elbowY, 11, SDL_Color{40, 40, 48, 255});
-        limb(shoulderX + 2, shoulderY, elbowX + 2, elbowY + 2, 7,
-             SDL_Color{56, 56, 66, 255});
-        limb(elbowX, elbowY, hx, hy, 8, SDL_Color{62, 62, 72, 255});
-        limb(elbowX + 2, elbowY, hx + 2, hy - 1, 4, SDL_Color{206, 160, 126, 255});
-
-        // кисть, сжимающая биту
-        box(hx - 5, hy - 4, 10, 9, SDL_Color{208, 162, 128, 255});
-        box(hx - 5, hy - 4, 10, 2, SDL_Color{228, 184, 148, 255});
-
-        // бита: тонкая рукоять у кисти и толстый боёк у затылка
+        // бита: тонкая рукоять с набалдашником и толстый боёк у затылка
         int batMidX = hx - 9, batMidY = hy + 1;
-        int batTipX = hx - 26, batTipY = hy + 5;
+        int batTipX = hx - 30, batTipY = hy + 5;
+        box(hx - 1, hy - 2, 3, 5, SDL_Color{72, 44, 22, 255});
         limb(hx, hy, batMidX, batMidY, 5, SDL_Color{92, 56, 28, 255});
-        limb(batMidX, batMidY, batTipX, batTipY, 8, SDL_Color{158, 102, 50, 255});
+        limb(batMidX, batMidY, batTipX, batTipY, 9, SDL_Color{158, 102, 50, 255});
         limb(batMidX, batMidY - 1, batTipX + 3, batTipY - 1, 3,
              SDL_Color{198, 140, 74, 255});
-        box(batTipX - 1, batTipY - 4, 3, 8, SDL_Color{118, 74, 36, 255});
+        box(batTipX - 1, batTipY - 5, 3, 10, SDL_Color{118, 74, 36, 255});
 
         if (impact > 0.0f) {
             float ia = clampf(1.0f - (t - 1.05f) / 0.35f, 0.0f, 1.0f);
