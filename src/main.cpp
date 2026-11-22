@@ -4395,20 +4395,21 @@ void Game::drawDeathOverlay()
             hy += static_cast<int>(std::cos(t * 47.0f));
         }
 
-        // бита: тонкая рукоять с набалдашником и толстый боёк у затылка
-        int batMidX = hx - 9, batMidY = hy + 1;
-        int batTipX = hx - 30, batTipY = hy + 5;
-        box(hx - 1, hy - 2, 3, 5, SDL_Color{72, 44, 22, 255});
-        limb(hx, hy, batMidX, batMidY, 5, SDL_Color{92, 56, 28, 255});
-        limb(batMidX, batMidY, batTipX, batTipY, 9, SDL_Color{158, 102, 50, 255});
-        limb(batMidX, batMidY - 1, batTipX + 3, batTipY - 1, 3,
+        // бита крупным планом: тонкая рукоять с набалдашником и толстый боёк
+        int batMidX = hx - 13, batMidY = hy + 1;
+        int batTipX = hx - 42, batTipY = hy + 6;
+        box(hx - 1, hy - 3, 4, 7, SDL_Color{72, 44, 22, 255});
+        limb(hx, hy, batMidX, batMidY, 7, SDL_Color{92, 56, 28, 255});
+        limb(batMidX, batMidY, batTipX, batTipY, 13, SDL_Color{158, 102, 50, 255});
+        limb(batMidX, batMidY - 1, batTipX + 4, batTipY - 2, 4,
              SDL_Color{198, 140, 74, 255});
-        box(batTipX - 1, batTipY - 5, 3, 10, SDL_Color{118, 74, 36, 255});
+        box(batTipX - 2, batTipY - 7, 4, 14, SDL_Color{118, 74, 36, 255});
 
         if (impact > 0.0f) {
             float ia = clampf(1.0f - (t - 1.05f) / 0.35f, 0.0f, 1.0f);
             // кровь на бойке
-            box(batTipX + 2, batTipY - 4, 7, 5, SDL_Color{150, 30, 40, 235});
+            box(batTipX + 3, batTipY - 6, 10, 8, SDL_Color{150, 30, 40, 235});
+            box(batTipX + 5, batTipY - 8, 5, 2, SDL_Color{170, 36, 46, 235});
             int cx = px + 46, cy = py + 8;
             SDL_SetRenderDrawColor(ren, 255, 238, 150,
                                    static_cast<Uint8>(220 * ia));
@@ -4422,8 +4423,8 @@ void Game::drawDeathOverlay()
         } else if (u > 0.25f) {
             // след движения биты
             SDL_SetRenderDrawColor(ren, 230, 210, 180, 55);
-            SDL_RenderDrawLine(ren, hx - 22, hy - 18, hx - 8, hy - 2);
-            SDL_RenderDrawLine(ren, hx - 14, hy - 4, hx - 2, hy + 4);
+            SDL_RenderDrawLine(ren, hx - 32, hy - 24, hx - 12, hy - 3);
+            SDL_RenderDrawLine(ren, hx - 20, hy - 6, hx - 3, hy + 6);
         }
     } else {
         // Смерть от добермана: пёс сбивает верхнюю часть Коляна,
