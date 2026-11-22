@@ -41,7 +41,12 @@ constexpr int   PELLET_COUNT   = 7;      // дробин в залпе
 constexpr float SHOT_SPREAD    = 0.032f; // шаг разброса: крайние дроби уходят на ~±5.5°
 constexpr float RECOIL_KICK    = 180.0f; // отдача толкает Коляна назад
 constexpr int   START_LIVES    = 3;
-constexpr float KNIFE_SPEED    = 69.2f;  // +33% к прежним 52 px/s; Колян вдвое быстрее
+constexpr float BULLET_SPEED  = 69.2f * 1.2f;  // +20% к прежним 69.2 px/s
+constexpr float PISTOL_THUG_SPEED = BULLET_SPEED * 0.9f;  // на 10% медленнее пули
+// Пуля обязана быть медленнее Коляна, иначе от неё нельзя уйти.
+static_assert(BULLET_SPEED < RUN_SPEED, "bullet must be slower than Kolya");
+static_assert(PISTOL_THUG_SPEED < BULLET_SPEED,
+              "pistol thug must be slower than his bullet");
 constexpr float DEATH_TIME     = 2.6f;   // пауза с анимацией смерти
 constexpr float CHASE_RADIUS   = 34.0f;  // «два шага» до Коляна
 constexpr float PLAYER_H       = 30.0f;  // Колян в полтора раза выше прежнего
@@ -51,14 +56,17 @@ constexpr float PLAYER_H       = 30.0f;  // Колян в полтора раз�
 constexpr bool DEV_SECRET_LEVELS = true;
 
 constexpr int   CUP_SCORE      = 1000;   // кубок-трофей
-constexpr int   KILL_SCORE[3]  = {200, 100, 300};   // паук, зомби, метатель ножей
+// паук, браток с битой, браток с пистолетом, доберман
+constexpr int   KILL_SCORE[4]  = {200, 100, 300, 250};
 constexpr int   JEWEL_SCORE[3] = {200, 400, 600};   // три вида украшений
 
 enum GameState {
     ST_TITLE = 0, ST_PLAY = 1, ST_WIN = 2, ST_DYING = 3, ST_GAMEOVER = 4,
     ST_SETTINGS = 5, ST_SLIDE = 6, ST_LEVEL_SELECT = 7
 };
-enum DeathCause { DEATH_SPIDER = 0, DEATH_ZOMBIE = 1, DEATH_KNIFE = 2 };
+enum DeathCause {
+    DEATH_SPIDER = 0, DEATH_BAT = 1, DEATH_BULLET = 2, DEATH_DOBERMAN = 3
+};
 
 // ---------------------------------------------------------------------------
 //  Мелкие структуры
@@ -85,7 +93,8 @@ struct Body {
 };
 
 struct Monster {
-    int   type = 0;          // 0 — паук, 1 — зомби (оба наземные)
+    int   type = 0;          // 0 — паук, 1 — браток с битой,
+                             // 2 — браток с пистолетом, 3 — доберман
     Body  b;
     int   hp = 1, maxHp = 1;
     float anim = 0;
@@ -93,7 +102,7 @@ struct Monster {
     float homeX = 0, homeY = 0;
     float seed = 0;
     float turnTimer = 0;
-    float throwCd = 0;       // метатель ножей: пауза до следующего броска
+    float throwCd = 0;       // браток с пистолетом: пауза до следующего выстрела
     // Паук: 0 — ползёт по потолку, 1 — спускается на паутине,
     // 2 — висит, 3 — поднимается обратно.
     int   webState = 0;
@@ -117,12 +126,12 @@ struct Tracer {
     SDL_Color color{255, 230, 160, 255};
 };
 
-// Нож метателя: летит медленно и горизонтально (игрок заметно быстрее).
-struct Knife {
-    float x = 0, y = 0;      // центр ножа в мировых координатах
+// Пуля братка с пистолетом: летит по прямой, но медленнее Коляна.
+struct Bullet {
+    float x = 0, y = 0;      // центр пули в мировых координатах
     float vx = 0;            // горизонтальная скорость
-    int   dir = 1;           // куда смотрит остриё
-    float spin = 0;          // лёгкое покачивание в полёте
+    int   dir = 1;           // куда летит
+    float spin = 0;          // лёгкий след/мерцание
 };
 
 // Кубок-трофей: три штуки открывают парадную дверь, каждый даёт 1000 очков.
@@ -503,7 +512,7 @@ struct Game {
     std::vector<RectF> rugs;
     std::vector<Particle> parts;
     std::vector<Tracer> tracers;
-    std::vector<Knife> knives;
+    std::vector<Bullet> bullets;
     std::vector<Light> lights;
     std::vector<Monster> monsters;
 
@@ -568,7 +577,7 @@ struct Game {
     void updatePlayer(float dt, const Input& in);
     void updateMonsters(float dt);
     void updateSpider(Monster& m, float dt, float dxp);
-    void updateKnives(float dt);
+    void updateBullets(float dt);
     void updateWeapon(float dt, const Input& in);
     void updateParticles(float dt);
     void updateTracers(float dt);
@@ -623,9 +632,10 @@ struct Game {
     void drawJewelIcon(int x, int y, int type, float bob);
     void drawMonsters();
     void drawSpider(const Monster& m);
-    void drawZombie(const Monster& m);
-    void drawKnifeThrower(const Monster& m);
-    void drawKnives();
+    void drawBatThug(const Monster& m);
+    void drawPistolThug(const Monster& m);
+    void drawDoberman(const Monster& m);
+    void drawBullets();
     void drawGuy(const Body& b, const Palette& p);
     void drawParticles();
     void drawTracers();
@@ -985,9 +995,11 @@ void Game::resetWorld(int index)
     for (int ty = 0; ty < lvl.h; ++ty) {
         for (int tx = 0; tx < lvl.w; ++tx) {
             char c = lvl.at(tx, ty);
-            if (c != 'z' && c != 'v' && c != 'n') continue;
+            if (c != 'z' && c != 'v' && c != 'n' && c != 'd') continue;
             Monster m;
-            m.type = (c == 'z') ? 0 : ((c == 'v') ? 1 : 2);
+            m.type = (c == 'z') ? 0
+                     : (c == 'v') ? 1
+                     : (c == 'n') ? 2 : 3;
             m.seed = rndf(rngState, 0.0f, 6.28f);
             m.b.facing = (hash2(tx, ty) & 1u) ? 1 : -1;
             if (m.type == 0) {
@@ -1003,8 +1015,19 @@ void Game::resetWorld(int index)
                 m.webAnchorX = m.b.x + m.b.w * 0.5f;
                 m.webAnchorY = m.b.y;
                 m.hp = m.maxHp = 3;
+            } else if (m.type == 3) {
+                // доберман: длинный и низкий, хитбокс занижен — проходит
+                // под высокими выстрелами и кусает за ноги.
+                m.b.w = 24;
+                m.b.h = 14;
+                m.b.x = tx * 16.0f - 4.0f;
+                int floorRow = ty;
+                while (floorRow < lvl.h && !lvl.solid(tx, floorRow)) ++floorRow;
+                m.b.y = (floorRow < lvl.h) ? (floorRow * 16.0f - m.b.h)
+                                           : (ty * 16.0f + 16.0f - m.b.h);
+                m.hp = m.maxHp = 2;
             } else {
-                // зомби и метатель ножей: высокие, ищут пол под своей клеткой
+                // братки: высокие, ищут пол под своей клеткой.
                 m.b.w = 14;
                 m.b.h = 26;
                 m.b.x = tx * 16.0f + 1.0f;
@@ -1034,7 +1057,7 @@ void Game::resetWorld(int index)
 
     parts.clear();
     tracers.clear();
-    knives.clear();
+    bullets.clear();
     lights.clear();
     checkpoint = RectF{player.x, player.y, player.w, player.h};
     snapCamera();
@@ -1273,7 +1296,7 @@ void Game::update(float dt, const Input& in)
     updatePlayer(dt, in);
     updateWeapon(dt, in);
     updateMonsters(dt);
-    updateKnives(dt);
+    updateBullets(dt);
     checkPickups();
     checkDoor(dt);
     updateCamera(dt);
@@ -1585,14 +1608,15 @@ void Game::damageMonster(Monster& m, int dmg, float dirX)
         addScorePopup(KILL_SCORE[m.type], SDL_Color{255, 226, 150, 255});
         shake = std::max(shake, 0.30f);
         SDL_Color blood = (m.type == 0) ? SDL_Color{150, 40, 45, 255}
-                                        : SDL_Color{90, 150, 60, 255};
+                        : (m.type == 3) ? SDL_Color{120, 26, 34, 255}
+                                        : SDL_Color{142, 40, 42, 255};
         spawnSparkle(m.b.x + m.b.w * 0.5f, m.b.y + m.b.h * 0.5f, 18, blood);
         spawnSparkle(m.b.x + m.b.w * 0.5f, m.b.y + m.b.h * 0.5f, 8,
                      SDL_Color{255, 200, 90, 255});
     } else {
         spawnSparkle(m.b.x + m.b.w * 0.5f, m.b.y + m.b.h * 0.5f, 5,
                      (m.type == 0) ? SDL_Color{180, 60, 60, 255}
-                                   : SDL_Color{120, 180, 70, 255});
+                                   : SDL_Color{160, 60, 52, 255});
     }
 }
 
@@ -1627,10 +1651,10 @@ void Game::updateMonsters(float dt)
 
         int dir = b.facing;
         float targetSpeed = 0.0f;
-        bool holding = false;    // метатель стоит и целится
+        bool holding = false;    // браток с пистолетом стоит и целится
 
         if (m.type == 2) {
-            // Метатель ножей: бросает, когда Колян на одной с ним высоте.
+            // Браток с пистолетом: стреляет, когда Колян на одной с ним высоте.
             bool inSight = state == ST_PLAY && player.invuln <= 0 &&
                            std::fabs(dyp) < 26.0f && std::fabs(dxp) < 300.0f;
             if (inSight) {
@@ -1639,41 +1663,45 @@ void Game::updateMonsters(float dt)
                 holding = true;
                 m.anim += dt * 2.0f;
                 if (m.throwCd <= 0.0f) {
-                    // Нож летит медленно и по прямой — от него легко уйти.
-                    Knife k;
+                    // Пуля летит по прямой, но всё равно медленнее Коляна.
+                    Bullet k;
                     k.dir = dir;
                     k.x = b.x + b.w * 0.5f + dir * 12.0f;
                     k.y = b.y + 9.0f;
-                    k.vx = dir * KNIFE_SPEED;
+                    k.vx = dir * BULLET_SPEED;
                     k.spin = rndf(rngState, 0.0f, 6.28f);
-                    knives.push_back(k);
+                    bullets.push_back(k);
                     m.throwCd = rndf(rngState, 1.7f, 2.4f);
                     m.anim += 1.8f;
-                    spawnSparkle(k.x, k.y, 3, SDL_Color{205, 215, 235, 170});
+                    spawnSparkle(k.x, k.y, 3, SDL_Color{255, 226, 150, 200});
                 }
             } else {
-                // Медленный патруль в подвале.
+                // Быстрый патруль: ровно на 10% медленнее своей пули.
                 float off = b.x - m.homeX;
-                if (off > 40.0f) dir = -1;
-                else if (off < -40.0f) dir = 1;
-                targetSpeed = 16.0f;
-                m.anim += dt * 2.0f;
+                if (off > 80.0f) dir = -1;
+                else if (off < -80.0f) dir = 1;
+                targetSpeed = PISTOL_THUG_SPEED;
+                m.anim += dt * 4.0f;
             }
         } else {
-            // Преследование только если Колян совсем рядом — в двух шагах.
+            const bool dog = (m.type == 3);
+            float chaseRadius = dog ? CHASE_RADIUS * 1.6f : CHASE_RADIUS;
             bool chase = state == ST_PLAY && player.invuln <= 0 &&
-                         std::fabs(dxp) <= CHASE_RADIUS && std::fabs(dyp) < 30.0f;
+                         std::fabs(dxp) <= chaseRadius &&
+                         std::fabs(dyp) < (dog ? 22.0f : 30.0f);
             if (chase) {
                 dir = (dxp > 0.0f) ? 1 : -1;
-                targetSpeed = (m.type == 0) ? 82.0f : 56.0f;
-                m.anim += dt * ((m.type == 0) ? 12.0f : 7.0f);
+                // Браток с битой стал на 10% быстрее прежнего зомби (56).
+                targetSpeed = dog ? 118.0f : 61.6f;
+                m.anim += dt * (dog ? 16.0f : 7.7f);
             } else {
                 // Патруль вокруг точки появления.
                 float off = b.x - m.homeX;
-                if (off > 48.0f) dir = -1;
-                else if (off < -48.0f) dir = 1;
-                targetSpeed = (m.type == 0) ? 30.0f : 20.0f;
-                m.anim += dt * ((m.type == 0) ? 5.0f : 3.0f);
+                float range = dog ? 90.0f : 48.0f;
+                if (off > range) dir = -1;
+                else if (off < -range) dir = 1;
+                targetSpeed = dog ? 42.0f : 22.0f;
+                m.anim += dt * (dog ? 7.0f : 3.3f);
             }
         }
         b.facing = dir;
@@ -1699,7 +1727,9 @@ void Game::updateMonsters(float dt)
             overlapRect(player.x + 1.0f, player.y + 3.0f, player.w - 2.0f, player.h - 4.0f,
                         m.b.x + 1.0f, m.b.y + 1.0f, m.b.w - 2.0f, m.b.h - 2.0f)) {
             killPlayer(m.type == 0 ? DEATH_SPIDER
-                                   : (m.type == 1 ? DEATH_ZOMBIE : DEATH_KNIFE));
+                                   : (m.type == 1) ? DEATH_BAT
+                                   : (m.type == 2) ? DEATH_BULLET
+                                                   : DEATH_DOBERMAN);
             break;
         }
     }
@@ -1786,15 +1816,15 @@ void Game::updateSpider(Monster& m, float dt, float dxp)
     }
 }
 
-void Game::updateKnives(float dt)
+void Game::updateBullets(float dt)
 {
-    std::vector<Knife> keep;
-    keep.reserve(knives.size());
-    for (Knife& k : knives) {
+    std::vector<Bullet> keep;
+    keep.reserve(bullets.size());
+    for (Bullet& k : bullets) {
         k.x += k.vx * dt;
         k.spin += dt * 13.0f;
 
-        // Нож врезается в стену (или ступень) — искры и вон.
+        // Пуля врезается в стену (или ступень) — искры и вон.
         if (lvl.solidRect(k.x - 2.0f, k.y - 1.0f, 4.0f, 2.0f) ||
             lvl.stepRect(k.x - 2.0f, k.y - 1.0f, 4.0f, 2.0f)) {
             spawnSparkle(k.x, k.y, 5, SDL_Color{222, 205, 168, 220});
@@ -1804,13 +1834,13 @@ void Game::updateKnives(float dt)
         if (state == ST_PLAY && player.invuln <= 0 &&
             overlapRect(k.x - 3.0f, k.y - 2.5f, 6.0f, 5.0f,
                         player.x, player.y, player.w, player.h)) {
-            killPlayer(DEATH_KNIFE);   // сам нож и остальные снимаются смертью
+            killPlayer(DEATH_BULLET);   // сама пуля и остальные снимаются смертью
             return;
         }
 
         keep.push_back(k);
     }
-    knives.swap(keep);
+    bullets.swap(keep);
 }
 
 void Game::updateParticles(float dt)
@@ -2063,10 +2093,10 @@ void Game::killPlayer(int cause)
     player.vx = player.vy = 0;
     shake = 0.8f;
     hurtFlash = 0.9f;
-    SDL_Color blood = (cause == DEATH_ZOMBIE) ? SDL_Color{120, 200, 90, 255}
+    SDL_Color blood = (cause == DEATH_DOBERMAN) ? SDL_Color{130, 26, 32, 255}
                                               : SDL_Color{210, 70, 70, 255};
     spawnSparkle(player.x + player.w * 0.5f, player.y + player.h * 0.5f, 22, blood);
-    knives.clear();
+    bullets.clear();
 }
 
 void Game::updateDeath(float dt)
@@ -2187,7 +2217,7 @@ void Game::render()
 
     drawGuy(player, pp);
     if (state != ST_WIN) {
-        drawKnives();
+        drawBullets();
         drawTracers();
         drawParticles();
     }
@@ -3049,8 +3079,9 @@ void Game::drawMonsters()
 {
     for (const Monster& m : monsters) {
         if (m.type == 0) drawSpider(m);
-        else if (m.type == 1) drawZombie(m);
-        else drawKnifeThrower(m);
+        else if (m.type == 1) drawBatThug(m);
+        else if (m.type == 2) drawPistolThug(m);
+        else drawDoberman(m);
     }
 }
 
@@ -3142,7 +3173,7 @@ void Game::drawSpider(const Monster& m)
     }
 }
 
-void Game::drawZombie(const Monster& m)
+void Game::drawBatThug(const Monster& m)
 {
     const Body& b = m.b;
     if (b.x + b.w < camX - 40.0f || b.x > camX + VIEW_W + 40.0f) return;
@@ -3161,57 +3192,65 @@ void Game::drawZombie(const Monster& m)
     }
 
     int step = (static_cast<int>(m.anim * 5.0f) % 2 == 0) ? 1 : 0;
+    int bob = (static_cast<int>(m.anim * 3.0f) % 2 == 0) ? 0 : 1;
 
-    // ноги
-    fillW(b.x + 2.0f + step, b.y + 18.0f, 4.0f, 6.0f, SDL_Color{52, 46, 42, 255});
-    fillW(b.x + 8.0f - step, b.y + 18.0f, 4.0f, 6.0f, SDL_Color{42, 38, 36, 255});
-    fillW(b.x + 1.0f + step, b.y + 23.0f, 5.0f, 3.0f, SDL_Color{28, 26, 24, 255});
-    fillW(b.x + 8.0f - step, b.y + 23.0f, 5.0f, 3.0f, SDL_Color{24, 22, 22, 255});
+    // ноги в тёмных спортивных штанах
+    fillW(b.x + 2.0f + step, b.y + 18.0f, 4.0f, 6.0f, SDL_Color{42, 44, 48, 255});
+    fillW(b.x + 8.0f - step, b.y + 18.0f, 4.0f, 6.0f, SDL_Color{34, 36, 40, 255});
+    fillW(b.x + 1.0f + step, b.y + 23.0f, 5.0f, 3.0f, SDL_Color{24, 23, 24, 255});
+    fillW(b.x + 8.0f - step, b.y + 23.0f, 5.0f, 3.0f, SDL_Color{20, 19, 20, 255});
 
-    // рваный пиджак
-    fillW(b.x + 2.0f, b.y + 8.0f, b.w - 4.0f, 10.0f, SDL_Color{84, 92, 80, 255});
-    fillW(b.x + 2.0f, b.y + 8.0f, 2.0f, 10.0f, SDL_Color{58, 68, 58, 255});
-    fillW(b.x + 4.0f, b.y + 17.0f, 3.0f, 1.0f, SDL_Color{60, 52, 44, 255});
-    fillW(b.x + 9.0f, b.y + 17.0f, 2.0f, 2.0f, SDL_Color{58, 50, 42, 255});
-    fillW(b.x + 6.0f, b.y + 11.0f, 3.0f, 2.0f, SDL_Color{118, 36, 36, 210});
+    // чёрная куртка и золотая цепь
+    fillW(b.x + 1.0f, b.y + 8.0f, b.w - 2.0f, 10.0f, SDL_Color{52, 50, 58, 255});
+    fillW(b.x + 1.0f, b.y + 8.0f, 2.0f, 10.0f, SDL_Color{36, 34, 42, 255});
+    fillW(b.x + 3.0f, b.y + 16.0f, b.w - 6.0f, 2.0f, SDL_Color{30, 28, 34, 255});
+    fillW(b.x + 5.0f, b.y + 8.0f, 5.0f, 1.0f, SDL_Color{196, 158, 68, 255});
+    fillW(b.x + 6.0f, b.y + 9.0f, 3.0f, 1.0f, SDL_Color{150, 116, 46, 255});
 
-    // вытянутые вперёд руки
-    float hand1X = (dir > 0) ? b.x + b.w + 3.0f : b.x - 7.0f;
-    float hand2X = (dir > 0) ? b.x + b.w + 1.0f : b.x - 5.0f;
-    fillW((dir > 0) ? b.x + b.w - 2.0f : b.x - 6.0f, b.y + 9.0f,
-          8.0f, 3.0f, SDL_Color{96, 138, 84, 255});
-    fillW((dir > 0) ? b.x + b.w - 2.0f : b.x - 4.0f, b.y + 14.0f,
-          6.0f, 3.0f, SDL_Color{78, 116, 70, 255});
-    fillW(hand1X, b.y + 8.0f, 4.0f, 4.0f, SDL_Color{110, 154, 92, 255});
-    fillW(hand2X, b.y + 13.0f, 4.0f, 4.0f, SDL_Color{96, 140, 82, 255});
-    fillW(hand1X + (dir > 0 ? 3.0f : -1.0f), b.y + 9.0f, 2.0f, 1.0f,
-          SDL_Color{130, 176, 108, 255});
-
-    // голова
-    fillW(b.x + 2.0f, b.y, 10.0f, 9.0f, SDL_Color{118, 158, 94, 255});
-    fillW(b.x + 1.0f, b.y - 1.0f, 12.0f, 3.0f, SDL_Color{48, 54, 38, 255});
-    fillW(b.x + (dir > 0 ? 2.0f : 9.0f), b.y + 1.0f, 3.0f, 1.0f,
-          SDL_Color{150, 190, 118, 255});
-    fillW(b.x + 4.0f, b.y + 8.0f, 6.0f, 2.0f, SDL_Color{70, 96, 58, 255});
-
-    // глаза и зубы
+    // голова, кепка и злой прищур
+    fillW(b.x + 2.0f, b.y, 10.0f, 9.0f, SDL_Color{214, 168, 132, 255});
+    fillW(b.x + 2.0f, b.y + 6.0f, 10.0f, 3.0f, SDL_Color{190, 144, 112, 255});
+    fillW(b.x + 1.0f, b.y - 2.0f, 12.0f, 4.0f, SDL_Color{34, 32, 38, 255});
+    fillW(b.x + (dir > 0 ? 2.0f : 9.0f), b.y - 3.0f, 3.0f, 2.0f,
+          SDL_Color{30, 28, 34, 255});
     float eyeX = (dir > 0) ? b.x + b.w - 4.0f : b.x + 2.0f;
-    fillW(eyeX, b.y + 3.0f, 2.0f, 2.0f, SDL_Color{246, 224, 120, 255});
+    fillW(eyeX, b.y + 3.0f, 2.0f, 2.0f, SDL_Color{28, 24, 26, 255});
     fillW(eyeX + (dir > 0 ? -3.0f : 3.0f), b.y + 4.0f, 1.0f, 1.0f,
-          SDL_Color{230, 190, 90, 255});
-    fillW(b.x + 5.0f, b.y + 7.0f, 4.0f, 1.0f, SDL_Color{238, 232, 210, 255});
+          SDL_Color{70, 56, 50, 255});
+    fillW(b.x + 5.0f, b.y + 7.0f, 4.0f, 1.0f, SDL_Color{120, 62, 60, 255});
 
-    addLight(b.x + b.w * 0.5f, b.y + 8.0f, 24.0f,
-             SDL_Color{150, 210, 90, 255}, 18.0f);
+    // рука с битой, занесённой вперёд
+    float handX = (dir > 0) ? b.x + b.w + 1.0f : b.x - 5.0f;
+    fillW((dir > 0) ? b.x + b.w - 2.0f : b.x - 6.0f, b.y + 10.0f,
+          8.0f, 3.0f, SDL_Color{44, 42, 50, 255});
+    fillW(handX, b.y + 9.0f + bob, 4.0f, 4.0f, SDL_Color{206, 160, 126, 255});
+
+    const SDL_Color batDark{96, 58, 30, 255};
+    const SDL_Color batWood{162, 106, 52, 255};
+    const SDL_Color batLight{196, 140, 74, 255};
+    if (dir > 0) {
+        float bx = handX + 3.0f;
+        fillW(bx, b.y + 10.0f + bob, 7.0f, 2.0f, batDark);
+        fillW(bx + 6.0f, b.y + 8.0f + bob, 9.0f, 5.0f, batWood);
+        fillW(bx + 6.0f, b.y + 8.0f + bob, 9.0f, 2.0f, batLight);
+    } else {
+        float bx = handX - 12.0f;
+        fillW(bx + 5.0f, b.y + 10.0f + bob, 7.0f, 2.0f, batDark);
+        fillW(bx - 3.0f, b.y + 8.0f + bob, 9.0f, 5.0f, batWood);
+        fillW(bx - 3.0f, b.y + 8.0f + bob, 9.0f, 2.0f, batLight);
+    }
+
+    addLight(b.x + b.w * 0.5f, b.y + 8.0f, 22.0f,
+             SDL_Color{200, 150, 90, 255}, 15.0f);
 
     if (m.hurtFlash > 0.0f) {
-        SDL_SetRenderDrawColor(ren, 235, 255, 220, 85);
+        SDL_SetRenderDrawColor(ren, 255, 235, 225, 85);
         SDL_Rect flash{x + 1, y + 1, w - 2, h - 2};
         SDL_RenderFillRect(ren, &flash);
     }
 }
 
-void Game::drawKnifeThrower(const Monster& m)
+void Game::drawPistolThug(const Monster& m)
 {
     const Body& b = m.b;
     if (b.x + b.w < camX - 40.0f || b.x > camX + VIEW_W + 40.0f) return;
@@ -3231,44 +3270,56 @@ void Game::drawKnifeThrower(const Monster& m)
 
     int step = (static_cast<int>(m.anim * 5.0f) % 2 == 0) ? 1 : 0;
 
-    // ноги
-    fillW(b.x + 2.0f + step, b.y + 19.0f, 4.0f, 7.0f, SDL_Color{38, 34, 40, 255});
-    fillW(b.x + 8.0f - step, b.y + 19.0f, 4.0f, 7.0f, SDL_Color{30, 28, 34, 255});
+    // ноги в спортивных штанах с лампасами
+    fillW(b.x + 2.0f + step, b.y + 19.0f, 4.0f, 7.0f, SDL_Color{36, 38, 44, 255});
+    fillW(b.x + 8.0f - step, b.y + 19.0f, 4.0f, 7.0f, SDL_Color{28, 30, 36, 255});
     fillW(b.x + 1.0f + step, b.y + 24.0f, 5.0f, 2.0f, SDL_Color{20, 18, 22, 255});
     fillW(b.x + 8.0f - step, b.y + 24.0f, 5.0f, 2.0f, SDL_Color{18, 16, 20, 255});
+    fillW(b.x + 4.0f + step, b.y + 19.0f, 1.0f, 6.0f, SDL_Color{150, 148, 140, 255});
+    fillW(b.x + 9.0f - step, b.y + 19.0f, 1.0f, 6.0f, SDL_Color{140, 138, 130, 255});
 
-    // длинный тёмный плащ
-    fillW(b.x + 1.0f, b.y + 7.0f, b.w - 2.0f, 13.0f, SDL_Color{58, 44, 62, 255});
-    fillW(b.x + 1.0f, b.y + 7.0f, 3.0f, 13.0f, SDL_Color{40, 30, 46, 255});
-    fillW(b.x + 3.0f, b.y + 18.0f, 4.0f, 3.0f, SDL_Color{48, 36, 52, 255});
-    fillW(b.x + 9.0f, b.y + 18.0f, 3.0f, 3.0f, SDL_Color{48, 36, 52, 255});
+    // куртка
+    fillW(b.x + 1.0f, b.y + 7.0f, b.w - 2.0f, 13.0f, SDL_Color{48, 48, 58, 255});
+    fillW(b.x + 1.0f, b.y + 7.0f, 3.0f, 13.0f, SDL_Color{34, 34, 44, 255});
+    fillW(b.x + 3.0f, b.y + 18.0f, 4.0f, 3.0f, SDL_Color{42, 42, 52, 255});
+    fillW(b.x + 9.0f, b.y + 18.0f, 3.0f, 3.0f, SDL_Color{42, 42, 52, 255});
 
-    // пояс с метательными ножами
-    fillW(b.x + 1.0f, b.y + 16.0f, b.w - 2.0f, 2.0f, SDL_Color{26, 20, 24, 255});
-    fillW(b.x + 3.0f, b.y + 15.0f, 1.0f, 3.0f, SDL_Color{200, 210, 225, 255});
-    fillW(b.x + 7.0f, b.y + 15.0f, 1.0f, 3.0f, SDL_Color{180, 192, 210, 255});
-    fillW(b.x + 10.0f, b.y + 15.0f, 1.0f, 3.0f, SDL_Color{200, 210, 225, 255});
+    // пояс и цепь
+    fillW(b.x + 1.0f, b.y + 16.0f, b.w - 2.0f, 2.0f, SDL_Color{22, 20, 24, 255});
+    fillW(b.x + 5.0f, b.y + 8.0f, 5.0f, 1.0f, SDL_Color{196, 158, 68, 255});
 
-    // капюшон и лицо в тени
-    fillW(b.x + 2.0f, b.y, 10.0f, 9.0f, SDL_Color{44, 32, 52, 255});
-    fillW(b.x + 1.0f, b.y + 1.0f, 12.0f, 3.0f, SDL_Color{32, 24, 40, 255});
-    fillW(b.x + 4.0f, b.y + 3.0f, 6.0f, 5.0f, SDL_Color{24, 18, 26, 255});
+    // короткая стрижка и лицо
+    fillW(b.x + 2.0f, b.y, 10.0f, 9.0f, SDL_Color{212, 166, 130, 255});
+    fillW(b.x + 1.0f, b.y - 1.0f, 12.0f, 3.0f, SDL_Color{40, 34, 32, 255});
+    fillW(b.x + (dir > 0 ? 2.0f : 9.0f), b.y + 1.0f, 3.0f, 1.0f,
+          SDL_Color{226, 184, 146, 255});
+    fillW(b.x + 4.0f, b.y + 7.0f, 5.0f, 1.0f, SDL_Color{120, 62, 60, 255});
 
     float eyeX = (dir > 0) ? b.x + b.w - 5.0f : b.x + 3.0f;
-    fillW(eyeX, b.y + 4.0f, 2.0f, 2.0f, SDL_Color{255, 96, 64, 255});
+    fillW(eyeX, b.y + 4.0f, 2.0f, 2.0f, SDL_Color{30, 26, 24, 255});
     fillW(eyeX + (dir > 0 ? -3.0f : 3.0f), b.y + 5.0f, 1.0f, 1.0f,
-          SDL_Color{220, 80, 60, 255});
+          SDL_Color{72, 58, 50, 255});
 
-    // занесённая рука с ножом
-    float handX = (dir > 0) ? b.x + b.w + 3.0f : b.x - 7.0f;
-    fillW((dir > 0) ? b.x + b.w - 2.0f : b.x - 5.0f, b.y + 9.0f, 7.0f, 3.0f,
-          SDL_Color{64, 48, 68, 255});
-    fillW(handX, b.y + 8.0f, 4.0f, 4.0f, SDL_Color{96, 74, 72, 255});
-    fillW((dir > 0) ? handX + 4.0f : handX - 5.0f, b.y + 9.0f, 5.0f, 1.0f,
-          SDL_Color{206, 216, 230, 255});
+    // вытянутая рука с пистолетом
+    float handX = (dir > 0) ? b.x + b.w + 2.0f : b.x - 6.0f;
+    fillW((dir > 0) ? b.x + b.w - 2.0f : b.x - 5.0f, b.y + 9.0f,
+          7.0f, 3.0f, SDL_Color{56, 56, 66, 255});
+    fillW(handX, b.y + 8.0f, 4.0f, 4.0f, SDL_Color{205, 160, 126, 255});
+    float gunX = (dir > 0) ? handX + 4.0f : handX - 7.0f;
+    fillW(gunX, b.y + 9.0f, 7.0f, 3.0f, SDL_Color{26, 26, 30, 255});
+    fillW(gunX + (dir > 0 ? 2.0f : 1.0f), b.y + 12.0f, 2.0f, 2.0f,
+          SDL_Color{34, 34, 38, 255});
 
-    addLight(b.x + b.w * 0.5f, b.y + 8.0f, 22.0f,
-             SDL_Color{180, 70, 70, 255}, 16.0f);
+    // вспышка сразу после выстрела
+    if (m.throwCd > 1.55f) {
+        float fx = (dir > 0) ? gunX + 7.0f : gunX - 3.0f;
+        fillW(fx, b.y + 8.0f, 3.0f, 5.0f, SDL_Color{255, 220, 120, 220});
+        fillW(fx + (dir > 0 ? 1.0f : -1.0f), b.y + 10.0f, 2.0f, 1.0f,
+              SDL_Color{255, 246, 200, 230});
+    }
+
+    addLight((dir > 0) ? b.x + b.w + 8.0f : b.x - 8.0f, b.y + 9.0f,
+             20.0f, SDL_Color{220, 150, 90, 255}, 22.0f);
 
     if (m.hurtFlash > 0.0f) {
         SDL_SetRenderDrawColor(ren, 255, 220, 220, 80);
@@ -3277,37 +3328,108 @@ void Game::drawKnifeThrower(const Monster& m)
     }
 }
 
-void Game::drawKnives()
+void Game::drawDoberman(const Monster& m)
 {
-    for (const Knife& k : knives) {
+    const Body& b = m.b;
+    if (b.x + b.w < camX - 40.0f || b.x > camX + VIEW_W + 40.0f) return;
+    if (b.y + b.h < camY - 40.0f || b.y > camY + VIEW_H + 40.0f) return;
+
+    int dir = b.facing;
+    int step = (static_cast<int>(m.anim * 6.0f) % 2 == 0) ? 1 : 0;
+
+    const SDL_Color fur{54, 42, 40, 255};
+    const SDL_Color furLight{94, 72, 64, 255};
+    const SDL_Color tan{158, 108, 62, 255};
+
+    if (b.grounded) {
+        SDL_SetRenderDrawColor(ren, 0, 0, 0, 85);
+        SDL_Rect sh{sx(b.x) - 3, sy(b.y) + static_cast<int>(b.h) - 1,
+                    static_cast<int>(b.w) + 6, 2};
+        SDL_RenderFillRect(ren, &sh);
+    }
+
+    // хвост торчком
+    float rearX = (dir > 0) ? b.x + 1.0f : b.x + b.w - 3.0f;
+    fillW(rearX, b.y - 3.0f, 2.0f, 4.0f, fur);
+    fillW(rearX + (dir > 0 ? -2.0f : 2.0f), b.y - 6.0f, 3.0f, 3.0f, furLight);
+
+    // четыре лапы
+    fillW(b.x + 3.0f + step, b.y + b.h - 6.0f, 3.0f, 6.0f, fur);
+    fillW(b.x + 8.0f - step, b.y + b.h - 6.0f, 3.0f, 6.0f, fur);
+    fillW(b.x + b.w - 9.0f - step, b.y + b.h - 6.0f, 3.0f, 6.0f, fur);
+    fillW(b.x + b.w - 4.0f + step, b.y + b.h - 6.0f, 3.0f, 6.0f, fur);
+
+    // низкое вытянутое тело
+    fillW(b.x + 2.0f, b.y + 2.0f, b.w - 4.0f, 8.0f, fur);
+    fillW(b.x + 3.0f, b.y + 3.0f, b.w - 6.0f, 2.0f, furLight);
+    fillW(b.x + 4.0f, b.y + 7.0f, b.w - 8.0f, 3.0f, furLight);
+    fillW(b.x + (dir > 0 ? b.w - 9.0f : 5.0f), b.y + 4.0f, 4.0f, 5.0f, tan);
+    // подпалины на груди и лапах
+    fillW(b.x + (dir > 0 ? b.w - 11.0f : 8.0f), b.y + 5.0f, 3.0f, 4.0f, tan);
+    fillW(b.x + 3.0f + step, b.y + b.h - 2.0f, 3.0f, 2.0f, tan);
+    fillW(b.x + b.w - 4.0f + step, b.y + b.h - 2.0f, 3.0f, 2.0f, tan);
+
+    // голова с ушами и намордником
+    float hx = (dir > 0) ? b.x + b.w - 8.0f : b.x + 1.0f;
+    fillW(hx, b.y, 9.0f, 8.0f, fur);
+    fillW(hx + 1.0f, b.y - 3.0f, 3.0f, 3.0f, fur);
+    fillW(hx + 1.0f, b.y - 4.0f, 2.0f, 1.0f, furLight);
+    fillW(hx + 5.0f, b.y - 3.0f, 3.0f, 3.0f, fur);
+    fillW(hx + 5.0f, b.y - 4.0f, 2.0f, 1.0f, furLight);
+    fillW(hx + (dir > 0 ? 7.0f : 0.0f), b.y + 3.0f, 3.0f, 4.0f, tan);
+    fillW(hx + (dir > 0 ? 9.0f : -1.0f), b.y + 4.0f, 1.0f, 2.0f,
+          SDL_Color{24, 20, 22, 255});
+    // красный ошейник — сразу выдаёт собаку в тёмном коридоре
+    fillW((dir > 0) ? b.x + b.w - 10.0f : b.x + 2.0f, b.y + 1.0f,
+          3.0f, 2.0f, SDL_Color{178, 42, 50, 255});
+
+    // красный глаз и оскал
+    float ex = (dir > 0) ? hx + 6.0f : hx + 1.0f;
+    fillW(ex, b.y + 2.0f, 2.0f, 2.0f, SDL_Color{240, 60, 52, 255});
+    fillW(hx + (dir > 0 ? 6.0f : 1.0f), b.y + 6.0f, 3.0f, 1.0f,
+          SDL_Color{230, 220, 200, 255});
+
+    addLight(b.x + b.w * 0.5f, b.y + 4.0f, 20.0f,
+             SDL_Color{220, 80, 60, 255}, 14.0f);
+
+    if (m.hurtFlash > 0.0f) {
+        SDL_SetRenderDrawColor(ren, 255, 230, 225, 85);
+        SDL_Rect flash{sx(b.x) + 1, sy(b.y) + 1,
+                       static_cast<int>(b.w) - 2, static_cast<int>(b.h) - 2};
+        SDL_RenderFillRect(ren, &flash);
+    }
+}
+
+void Game::drawBullets()
+{
+    for (const Bullet& k : bullets) {
         int x = sx(k.x);
         int y = sy(k.y);
         if (x < -24 || x > VIEW_W + 24 || y < -24 || y > VIEW_H + 24) continue;
         int dir = k.dir;
 
-        // рукоять и гарда
-        SDL_SetRenderDrawColor(ren, 58, 38, 22, 255);
-        SDL_Rect handle{(dir > 0) ? x - 8 : x + 2, y - 1, 6, 2};
-        SDL_RenderFillRect(ren, &handle);
-        SDL_SetRenderDrawColor(ren, 150, 110, 50, 255);
-        SDL_Rect guard{(dir > 0) ? x - 3 : x + 1, y - 3, 2, 6};
-        SDL_RenderFillRect(ren, &guard);
+        // след полёта
+        SDL_SetRenderDrawColor(ren, 255, 214, 130, 90);
+        SDL_RenderDrawLine(ren, x - dir * 14, y, x - dir * 4, y);
+        SDL_SetRenderDrawColor(ren, 255, 238, 190, 150);
+        SDL_RenderDrawLine(ren, x - dir * 8, y - 1, x - dir * 3, y - 1);
 
-        // клинок-треугольник
-        SDL_Color steel{212, 222, 238, 255};
-        if (dir > 0)
-            fillTriangle(x + 2, y - 3, x + 2, y + 3, x + 12, y, steel);
-        else
-            fillTriangle(x - 2, y - 3, x - 2, y + 3, x - 12, y, steel);
+        // медная пуля с ярким сердечником
+        SDL_SetRenderDrawColor(ren, 196, 146, 58, 255);
+        SDL_Rect body{(dir > 0) ? x - 5 : x - 1, y - 2, 6, 4};
+        SDL_RenderFillRect(ren, &body);
+        if (dir > 0) {
+            fillTriangle(x + 1, y - 2, x + 1, y + 2, x + 7, y,
+                         SDL_Color{236, 196, 96, 255});
+        } else {
+            fillTriangle(x - 1, y - 2, x - 1, y + 2, x - 7, y,
+                         SDL_Color{236, 196, 96, 255});
+        }
+        SDL_SetRenderDrawColor(ren, 255, 250, 214, 240);
+        SDL_Rect shine{x - 2, y - 1, 3, 2};
+        SDL_RenderFillRect(ren, &shine);
 
-        // блик по лезвию
-        SDL_SetRenderDrawColor(ren, 248, 252, 255, 200);
-        if (dir > 0)
-            SDL_RenderDrawLine(ren, x + 3, y - 1, x + 10, y - 1);
-        else
-            SDL_RenderDrawLine(ren, x - 3, y - 1, x - 10, y - 1);
-
-        addLight(k.x, k.y, 16.0f, SDL_Color{180, 200, 230, 255}, 12.0f);
+        addLight(k.x, k.y, 14.0f, SDL_Color{255, 200, 110, 255}, 14.0f);
     }
 }
 
@@ -3917,7 +4039,8 @@ void Game::drawWinScreen()
 void Game::drawDeathOverlay()
 {
     const bool spider = (deathCause == DEATH_SPIDER);
-    const bool knife = (deathCause == DEATH_KNIFE);
+    const bool bullet = (deathCause == DEATH_BULLET);
+    const bool dog = (deathCause == DEATH_DOBERMAN);
     float t = deathTimer;
 
     SDL_SetRenderDrawColor(ren, 6, 3, 8, 170);
@@ -3930,8 +4053,9 @@ void Game::drawDeathOverlay()
     SDL_RenderFillRect(ren, &panel);
 
     SDL_Color edge = spider ? SDL_Color{178, 86, 140, 255}
-                            : (knife ? SDL_Color{196, 208, 228, 255}
-                                     : SDL_Color{124, 180, 78, 255});
+                            : bullet ? SDL_Color{236, 196, 96, 255}
+                            : dog ? SDL_Color{196, 52, 52, 255}
+                                  : SDL_Color{168, 112, 62, 255};
     SDL_SetRenderDrawColor(ren, edge.r, edge.g, edge.b, 255);
     SDL_RenderDrawRect(ren, &panel);
     SDL_SetRenderDrawColor(ren, static_cast<Uint8>(edge.r / 2),
@@ -4019,8 +4143,8 @@ void Game::drawDeathOverlay()
         box(mx - 2, my - 4, 2, 2, SDL_Color{255, 70, 60, 255});
         box(mx + 1, my - 4, 2, 2, SDL_Color{255, 70, 60, 255});
         box(mx - 2, my + 5, 5, 2, SDL_Color{30, 18, 26, 255});
-    } else if (knife) {
-        // Смерть от ножа: крупный нож входит в глаз, голова — строго в профиль.
+    } else if (bullet) {
+        // Смерть от пули: она входит в глаз, голова — строго в профиль.
         float u = clampf((t - 0.12f) / 0.60f, 0.0f, 1.0f);
         float impact = clampf((t - 0.72f) / 0.12f, 0.0f, 1.0f);
         float jt = clampf((t - 0.72f) / 0.32f, 0.0f, 1.0f);
@@ -4054,7 +4178,7 @@ void Game::drawDeathOverlay()
         box(px + 38, py + 23, 11, 13, skinShade);
         box(px + 41, py + 26, 4, 7, hair);
 
-        // один глаз в профиль: нож войдёт прямо в него
+        // один глаз в профиль: пуля войдёт прямо в него
         int eyeY = py + 17;
         if (impact < 0.5f) {
             box(px + 11, eyeY, 13, 8, SDL_Color{248, 246, 240, 255});
@@ -4069,47 +4193,39 @@ void Game::drawDeathOverlay()
         // рот
         box(px + 5, py + 40, 12, 2, SDL_Color{150, 72, 72, 255});
 
-        // цель ножа — глаз
+        // цель пули — глаз
         float targetX = static_cast<float>(px + 23);
         float targetY = static_cast<float>(eyeY + 4);
-        float startX = static_cast<float>(panel.x - 14);
+        float startX = static_cast<float>(panel.x - 20);
         float tipX = startX + (targetX - startX) * u;
 
         // след полёта
         if (u > 0.05f && u < 1.0f) {
-            SDL_SetRenderDrawColor(ren, 210, 224, 240, 80);
-            SDL_RenderDrawLine(ren, static_cast<int>(tipX) - 30,
+            SDL_SetRenderDrawColor(ren, 255, 214, 130, 95);
+            SDL_RenderDrawLine(ren, static_cast<int>(tipX) - 34,
                                static_cast<int>(targetY),
-                               static_cast<int>(tipX),
+                               static_cast<int>(tipX) - 8,
                                static_cast<int>(targetY));
+            SDL_SetRenderDrawColor(ren, 255, 240, 190, 140);
+            SDL_RenderDrawLine(ren, static_cast<int>(tipX) - 24,
+                               static_cast<int>(targetY) - 1,
+                               static_cast<int>(tipX) - 9,
+                               static_cast<int>(targetY) - 1);
         }
 
-        // крупный нож: длинный клинок, гарда и толстая рукоять
-        const int bladeLen = 27;
-        const int handleLen = 14;
+        // крупная пуля: медный корпус, острая головка и яркий сердечник
         int hy = static_cast<int>(targetY);
         int tip = static_cast<int>(tipX);
-        int guardX = tip - bladeLen;
-        int handleX = guardX - handleLen;
-        // рукоять
-        box(handleX, hy - 3, handleLen, 6, SDL_Color{52, 34, 20, 255});
-        box(handleX + 2, hy - 3, 2, 6, SDL_Color{96, 66, 36, 255});
-        box(handleX + 7, hy - 3, 2, 6, SDL_Color{96, 66, 36, 255});
-        box(handleX - 2, hy - 4, 3, 8, SDL_Color{78, 52, 28, 255});
-        // гарда
-        box(guardX - 2, hy - 8, 4, 16, SDL_Color{176, 136, 64, 255});
-        box(guardX - 1, hy - 7, 2, 14, SDL_Color{224, 186, 96, 255});
-        // клинок с долом и блеском
-        fillTriangle(guardX, hy - 5, guardX, hy + 5, tip, hy,
-                     SDL_Color{206, 216, 232, 255});
-        fillTriangle(guardX, hy - 5, guardX, hy, tip, hy,
-                     SDL_Color{236, 242, 250, 255});
-        SDL_SetRenderDrawColor(ren, 120, 132, 154, 255);
-        SDL_RenderDrawLine(ren, guardX + 2, hy + 2, tip - 3, hy + 1);
-        SDL_SetRenderDrawColor(ren, 255, 255, 255, 220);
-        SDL_RenderDrawLine(ren, guardX + 2, hy - 3, tip - 4, hy - 1);
+        int tail = tip - 15;
+        box(tail, hy - 3, 10, 6, SDL_Color{188, 138, 54, 255});
+        box(tail, hy - 3, 2, 6, SDL_Color{120, 84, 34, 255});
+        fillTriangle(tip - 5, hy - 4, tip - 5, hy + 4, tip, hy,
+                     SDL_Color{236, 194, 92, 255});
+        fillTriangle(tip - 5, hy - 4, tip - 5, hy, tip, hy,
+                     SDL_Color{252, 226, 150, 255});
+        box(tip - 12, hy - 2, 4, 2, SDL_Color{255, 250, 214, 235});
 
-        // удар: брызги и струйка крови из глаза
+        // удар: кровь из глаза
         if (impact > 0.0f) {
             int cx = px + 18;
             int cy = eyeY + 4;
@@ -4126,13 +4242,36 @@ void Game::drawDeathOverlay()
                                    cx + static_cast<int>(std::cos(a) * len),
                                    cy - static_cast<int>(std::sin(a) * len) + 2);
             }
+
+            // красные брызги из затылка: пуля вышла с другой стороны
+            int bx = px + 52;
+            int by = py + 16;
+            float fade = clampf(1.0f - (t - 0.86f) / 0.95f, 0.0f, 1.0f);
+            for (int i = 0; i < 9; ++i) {
+                float a = -0.55f + i * 0.15f;
+                int len = 8 + static_cast<int>(16.0f * impact) +
+                          static_cast<int>(3.0f * std::sin(t * 31.0f + i));
+                SDL_SetRenderDrawColor(ren, 206, 32, 44,
+                                       static_cast<Uint8>(225 * fade));
+                SDL_RenderDrawLine(ren, bx, by,
+                                   bx + static_cast<int>(std::cos(a) * len),
+                                   by + static_cast<int>(std::sin(a) * len));
+            }
+            for (int i = 0; i < 6; ++i) {
+                int dx = 4 + static_cast<int>(std::fmod(t * 58.0f + i * 11.0f, 28.0f));
+                int dy = -8 + ((i * 9) % 22);
+                SDL_SetRenderDrawColor(ren, 176, 26, 36,
+                                       static_cast<Uint8>(215 * fade));
+                SDL_Rect drop{bx + dx, by + dy, 2, 2};
+                SDL_RenderFillRect(ren, &drop);
+            }
         }
 
         // рука Коляна дёрнулась к лицу
         limb(px + 10, py + 62, px + 5, py + 42, 6, skinShade);
         box(px + 1, py + 37, 8, 6, skin);
-    } else {
-        // Смерть от зомби: удар сзади сносит Коляну голову.
+    } else if (deathCause == DEATH_BAT) {
+        // Смерть от братка с битой: удар сзади сносит Коляну голову.
         float u = clampf((t - 0.10f) / 0.85f, 0.0f, 1.0f);
         float impact = clampf((t - 0.95f) / 0.12f, 0.0f, 1.0f);
         float jt = clampf((t - 0.95f) / 0.30f, 0.0f, 1.0f);
@@ -4237,7 +4376,7 @@ void Game::drawDeathOverlay()
             }
         }
 
-        // рука зомби летит по дуге от правого верхнего угла к затылку
+        // рука братка с битой летит по дуге от правого верхнего угла к затылку
         int startX = panel.x + 112, startY = panel.y - 12;
         int ctrlX = panel.x + 94, ctrlY = panel.y - 14;
         int endX = px + 46, endY = py + 10;
@@ -4246,7 +4385,7 @@ void Game::drawDeathOverlay()
                                   u * u * endX);
         int hy = static_cast<int>(inv * inv * startY + 2.0f * inv * u * ctrlY +
                                   u * u * endY);
-        // после удара зомби отдёргивает руку, выпуская голову
+        // после удара браток отдёргивает руку, выпуская голову
         float retract = clampf((t - 1.02f) / 0.45f, 0.0f, 1.0f);
         hx += static_cast<int>(18.0f * retract);
         hy -= static_cast<int>(6.0f * retract);
@@ -4255,27 +4394,32 @@ void Game::drawDeathOverlay()
             hy += static_cast<int>(std::cos(t * 47.0f));
         }
 
-        // плечо и предплечье зомби
+        // плечо и предплечье в чёрной куртке
         int shoulderX = panel.x + 112, shoulderY = panel.y + 84;
         int elbowX = panel.x + 80, elbowY = panel.y + 10;
-        limb(shoulderX, shoulderY, elbowX, elbowY, 11, SDL_Color{54, 62, 46, 255});
+        limb(shoulderX, shoulderY, elbowX, elbowY, 11, SDL_Color{40, 40, 48, 255});
         limb(shoulderX + 2, shoulderY, elbowX + 2, elbowY + 2, 7,
-             SDL_Color{70, 82, 58, 255});
-        limb(elbowX, elbowY, hx, hy, 8, SDL_Color{104, 148, 86, 255});
-        limb(elbowX, elbowY, hx + 2, hy - 1, 4, SDL_Color{128, 172, 102, 255});
+             SDL_Color{56, 56, 66, 255});
+        limb(elbowX, elbowY, hx, hy, 8, SDL_Color{62, 62, 72, 255});
+        limb(elbowX + 2, elbowY, hx + 2, hy - 1, 4, SDL_Color{206, 160, 126, 255});
 
-        // кисть и пальцы
-        SDL_Color hand{118, 162, 96, 255};
-        SDL_Color finger{144, 186, 112, 255};
-        box(hx - 8, hy - 6, 15, 12, hand);
-        box(hx - 13, hy - 6, 6, 3, finger);
-        box(hx - 14, hy - 2, 7, 3, finger);
-        box(hx - 13, hy + 2, 6, 3, finger);
-        box(hx - 9, hy + 6, 5, 3, finger);
-        box(hx + 3, hy - 8, 4, 5, SDL_Color{92, 132, 74, 255});
+        // кисть, сжимающая биту
+        box(hx - 5, hy - 4, 10, 9, SDL_Color{208, 162, 128, 255});
+        box(hx - 5, hy - 4, 10, 2, SDL_Color{228, 184, 148, 255});
+
+        // бита: тонкая рукоять у кисти и толстый боёк у затылка
+        int batMidX = hx - 9, batMidY = hy + 1;
+        int batTipX = hx - 26, batTipY = hy + 5;
+        limb(hx, hy, batMidX, batMidY, 5, SDL_Color{92, 56, 28, 255});
+        limb(batMidX, batMidY, batTipX, batTipY, 8, SDL_Color{158, 102, 50, 255});
+        limb(batMidX, batMidY - 1, batTipX + 3, batTipY - 1, 3,
+             SDL_Color{198, 140, 74, 255});
+        box(batTipX - 1, batTipY - 4, 3, 8, SDL_Color{118, 74, 36, 255});
 
         if (impact > 0.0f) {
             float ia = clampf(1.0f - (t - 1.05f) / 0.35f, 0.0f, 1.0f);
+            // кровь на бойке
+            box(batTipX + 2, batTipY - 4, 7, 5, SDL_Color{150, 30, 40, 235});
             int cx = px + 46, cy = py + 8;
             SDL_SetRenderDrawColor(ren, 255, 238, 150,
                                    static_cast<Uint8>(220 * ia));
@@ -4287,10 +4431,130 @@ void Game::drawDeathOverlay()
                                    cy + static_cast<int>(std::sin(a) * len));
             }
         } else if (u > 0.25f) {
-            // след движения руки
-            SDL_SetRenderDrawColor(ren, 220, 230, 210, 60);
-            SDL_RenderDrawLine(ren, hx + 12, hy - 14, hx + 3, hy - 2);
-            SDL_RenderDrawLine(ren, hx + 18, hy - 6, hx + 7, hy + 1);
+            // след движения биты
+            SDL_SetRenderDrawColor(ren, 230, 210, 180, 55);
+            SDL_RenderDrawLine(ren, hx - 22, hy - 18, hx - 8, hy - 2);
+            SDL_RenderDrawLine(ren, hx - 14, hy - 4, hx - 2, hy + 4);
+        }
+    } else {
+        // Смерть от добермана: пёс сбивает верхнюю часть Коляна,
+        // а внутренняя рамка постепенно заливается кровью по частям.
+        float u = clampf((t - 0.10f) / 0.80f, 0.0f, 1.0f);
+        float impact = clampf((t - 0.90f) / 0.12f, 0.0f, 1.0f);
+        float detach = clampf((t - 0.90f) / 0.65f, 0.0f, 1.0f);
+        bool hit = (t >= 0.90f);
+        float jt = clampf((t - 0.90f) / 0.30f, 0.0f, 1.0f);
+        int jolt = static_cast<int>(-std::sin(jt * 3.14159265f) * 5.0f);
+
+        int px = panel.x + 22 + jolt;
+        int py = panel.y + 18;
+
+        const SDL_Color skin{238, 190, 150, 255};
+        const SDL_Color skinShade{206, 156, 122, 255};
+        const SDL_Color hair{62, 40, 30, 255};
+
+        // нижняя часть Коляна остаётся стоять
+        box(px - 6, py + 56, 52, 22, SDL_Color{52, 84, 148, 255});
+        box(px - 6, py + 56, 52, 4, SDL_Color{190, 58, 62, 255});
+        if (hit) {
+            box(px + 14, py + 44, 20, 12, SDL_Color{126, 24, 34, 255});
+            box(px + 16, py + 44, 16, 3, SDL_Color{232, 220, 200, 255});
+            box(px + 18, py + 47, 3, 2, SDL_Color{180, 40, 48, 255});
+            box(px + 27, py + 47, 3, 2, SDL_Color{180, 40, 48, 255});
+            box(px + 15, py + 50, 2, 6, SDL_Color{150, 28, 38, 220});
+            box(px + 31, py + 49, 1, 5, SDL_Color{140, 26, 36, 200});
+        } else {
+            box(px + 14, py + 44, 20, 12, skinShade);
+        }
+
+        // верхняя часть: до удара на месте, после — отлетает влево-вверх
+        int ux = px - static_cast<int>(30.0f * detach);
+        int uy = py - static_cast<int>(22.0f * detach);
+        if (!hit) {
+            ux = px;
+            uy = py;
+        }
+        box(ux - 2, uy + 38, 44, 16, SDL_Color{52, 84, 148, 255});
+        box(ux - 2, uy + 38, 44, 4, SDL_Color{190, 58, 62, 255});
+        box(ux + 4, uy + 8, 30, 30, skin);
+        box(ux + 4, uy + 34, 26, 6, skinShade);
+        fillTriangle(ux + 4, uy + 18, ux - 3, uy + 24, ux + 4, uy + 28,
+                     skinShade);
+        box(ux + 1, uy + 3, 34, 8, hair);
+        box(ux + 30, uy + 8, 8, 24, hair);
+        box(ux + 3, uy + 6, 8, 3, hair);
+        if (impact < 0.5f) {
+            box(ux + 9, uy + 15, 8, 5, SDL_Color{248, 246, 240, 255});
+            box(ux + 11, uy + 16, 3, 3, SDL_Color{30, 22, 24, 255});
+        } else {
+            SDL_SetRenderDrawColor(ren, 56, 16, 24, 255);
+            SDL_RenderDrawLine(ren, ux + 9, uy + 15, ux + 16, uy + 20);
+            SDL_RenderDrawLine(ren, ux + 16, uy + 15, ux + 9, uy + 20);
+        }
+        if (hit) {
+            box(ux + 18, uy + 44, 18, 4, SDL_Color{126, 24, 34, 255});
+            box(ux + 22, uy + 44, 8, 2, SDL_Color{232, 220, 200, 255});
+        }
+
+        // доберман бросается справа и сбивает верхнюю часть
+        int dogX = panel.x + 104 - static_cast<int>(u * 30.0f);
+        int dogY = panel.y + 40;
+        const SDL_Color fur{34, 28, 30, 255};
+        const SDL_Color furLight{62, 50, 48, 255};
+        const SDL_Color tan{126, 86, 52, 255};
+
+        box(dogX, dogY, 30, 18, fur);
+        box(dogX + 4, dogY + 12, 22, 6, furLight);
+        box(dogX + 3, dogY + 18, 5, 12, fur);
+        box(dogX + 11, dogY + 18, 5, 12, fur);
+        box(dogX + 21, dogY + 18, 5, 12, fur);
+        box(dogX + 28, dogY - 8, 5, 12, fur);
+        box(dogX + 29, dogY - 10, 4, 3, furLight);
+        box(dogX - 12, dogY - 2, 16, 14, fur);
+        box(dogX - 9, dogY - 8, 4, 7, fur);
+        box(dogX - 2, dogY - 8, 4, 7, fur);
+        box(dogX - 11, dogY - 1, 14, 3, tan);
+
+        int jaw = hit ? 4 : (6 + static_cast<int>(std::sin(t * 30.0f)));
+        box(dogX - 16, dogY + 2, 6, 4, fur);
+        box(dogX - 16, dogY + 2 + jaw, 6, 4, fur);
+        box(dogX - 15, dogY + 5, 4, 1, SDL_Color{240, 236, 226, 255});
+        box(dogX - 15, dogY + 1 + jaw, 4, 1, SDL_Color{240, 236, 226, 255});
+        box(dogX - 6, dogY + 1, 2, 2, SDL_Color{240, 60, 52, 255});
+
+        if (impact > 0.0f) {
+            int nx = px + 22;
+            int ny = py + 42;
+            float fade = clampf(1.0f - (t - 1.05f) / 0.90f, 0.0f, 1.0f);
+            for (int i = 0; i < 8; ++i) {
+                float a = -0.4f + i * 0.75f;
+                int len = 8 + static_cast<int>(14.0f * impact);
+                SDL_SetRenderDrawColor(ren, 198, 32, 42,
+                                       static_cast<Uint8>(220 * fade));
+                SDL_RenderDrawLine(ren, nx, ny,
+                                   nx + static_cast<int>(std::cos(a) * len),
+                                   ny - static_cast<int>(std::sin(a) * len));
+            }
+        }
+
+        // рамка изнутри краснеет по частям
+        if (hit) {
+            float stain = clampf((t - 0.95f) / 1.30f, 0.0f, 1.0f);
+            static const int spots[][4] = {
+                {5, 5, 22, 4},  {32, 5, 26, 4},  {63, 5, 27, 4},
+                {5, 14, 4, 24}, {5, 44, 4, 22},  {5, 72, 4, 19},
+                {86, 12, 4, 26}, {86, 44, 4, 24}, {86, 74, 4, 18},
+                {12, 84, 24, 4}, {42, 84, 20, 4}, {68, 84, 22, 4},
+                {16, 34, 9, 7}, {66, 52, 12, 8},  {28, 60, 8, 6},
+                {50, 26, 7, 9}
+            };
+            const int total = static_cast<int>(sizeof(spots) / sizeof(spots[0]));
+            for (int i = 0; i < total; ++i) {
+                if (stain < static_cast<float>(i + 1) / total) continue;
+                Uint8 a = static_cast<Uint8>(120 + 90 * ((i % 3) / 2.0f));
+                box(panel.x + spots[i][0], panel.y + spots[i][1],
+                    spots[i][2], spots[i][3], SDL_Color{116, 18, 28, a});
+            }
         }
     }
 
@@ -4313,12 +4577,16 @@ void Game::drawGameOverScreen()
     pixfont::drawTextCentered(ren, VIEW_W / 2, 120,
                               "КОЛЯН ПОГИБ В АПАРТАМЕНТАХ «ДАЙМОНД»", 1,
                               SDL_Color{218, 200, 190, 255});
-    const char* causeText = (deathCause == DEATH_SPIDER) ? "ПОСЛЕДНЯЯ ПРИЧИНА: ПАУК"
-                            : (deathCause == DEATH_KNIFE) ? "ПОСЛЕДНЯЯ ПРИЧИНА: НОЖ"
-                                                          : "ПОСЛЕДНЯЯ ПРИЧИНА: ЗОМБИ";
-    SDL_Color causeCol = (deathCause == DEATH_SPIDER) ? SDL_Color{196, 110, 166, 255}
-                         : (deathCause == DEATH_KNIFE) ? SDL_Color{196, 208, 228, 255}
-                                                       : SDL_Color{140, 196, 90, 255};
+    const char* causeText =
+        (deathCause == DEATH_SPIDER)   ? "ПОСЛЕДНЯЯ ПРИЧИНА: ПАУК"
+        : (deathCause == DEATH_BULLET) ? "ПОСЛЕДНЯЯ ПРИЧИНА: ПУЛЯ"
+        : (deathCause == DEATH_DOBERMAN) ? "ПОСЛЕДНЯЯ ПРИЧИНА: ДОБЕРМАН"
+                                        : "ПОСЛЕДНЯЯ ПРИЧИНА: БРАТОК С БИТОЙ";
+    SDL_Color causeCol =
+        (deathCause == DEATH_SPIDER)   ? SDL_Color{196, 110, 166, 255}
+        : (deathCause == DEATH_BULLET) ? SDL_Color{236, 196, 96, 255}
+        : (deathCause == DEATH_DOBERMAN) ? SDL_Color{226, 90, 76, 255}
+                                         : SDL_Color{206, 154, 96, 255};
     pixfont::drawTextCentered(ren, VIEW_W / 2, 138, causeText, 1, causeCol);
 
     std::string stats = "МОНСТРОВ ПОВЕРЖЕНО: " + std::to_string(kills) +
@@ -4391,7 +4659,7 @@ void Game::makeScenarios()
     screenshot("shot_start.bmp");
     SDL_RenderPresent(ren);
 
-    // 1b — подвал: метатель ножей и нож в полёте
+    // 1b — подвал: браток с пистолетом и пуля в полёте
     resetWorld(0);
     state = ST_PLAY;
     {
@@ -4488,7 +4756,7 @@ void Game::makeScenarios()
     screenshot("shot_ballroom.bmp");
     SDL_RenderPresent(ren);
 
-    // 3 — бой: диагональный выстрел вверх по зомби
+    // 3 — бой: диагональный выстрел вверх по братку
     resetWorld(0);
     state = ST_PLAY;
     monsters.clear();
@@ -4608,6 +4876,34 @@ void Game::makeScenarios()
     screenshot("shot_level2.bmp");
     SDL_RenderPresent(ren);
 
+    // 6b — доберман: низкий хитбокс и погоня
+    resetWorld(1);
+    state = ST_PLAY;
+    monsters.clear();
+    player.x = 40 * 16.0f;
+    player.y = 482.0f;
+    player.facing = 1;
+    player.grounded = true;
+    {
+        Monster d;
+        d.type = 3;
+        d.b.w = 24;
+        d.b.h = 14;
+        d.b.x = 45 * 16.0f;
+        d.b.y = 32 * 16.0f - d.b.h;
+        d.b.facing = -1;
+        d.hp = d.maxHp = 2;
+        d.homeX = d.b.x;
+        d.homeY = d.b.y;
+        d.anim = 2.4f;
+        monsters.push_back(d);
+    }
+    snapCamera();
+    introTimer = 20.0f;
+    render();
+    screenshot("shot_doberman.bmp");
+    SDL_RenderPresent(ren);
+
     // 7 — победа
     state = ST_WIN;
     kills = 9;
@@ -4636,14 +4932,14 @@ void Game::makeScenarios()
     screenshot("shot_death.bmp");
     SDL_RenderPresent(ren);
 
-    // 8b — зомби сносит Коляну голову
-    deathCause = DEATH_ZOMBIE;
+    // 8b — браток с битой сносит Коляну голову
+    deathCause = DEATH_BAT;
     deathTimer = 1.60f;
     render();
-    screenshot("shot_death_zombie.bmp");
+    screenshot("shot_death_bat.bmp");
     SDL_RenderPresent(ren);
 
-    // 8c — нож между глаз (вид в профиль)
+    // 8c — пуля между глаз (вид в профиль)
     resetWorld(0);
     state = ST_PLAY;
     player.x = 17 * 16.0f;
@@ -4653,12 +4949,19 @@ void Game::makeScenarios()
     snapCamera();
     introTimer = 20.0f;
     lives = 2;
-    deathCause = DEATH_KNIFE;
+    deathCause = DEATH_BULLET;
     deathTimer = 1.20f;
     titleBlink = 0.25f;
     state = ST_DYING;
     render();
-    screenshot("shot_death_knife.bmp");
+    screenshot("shot_death_bullet.bmp");
+    SDL_RenderPresent(ren);
+
+    // 8d — доберман сбивает верхнюю часть Коляна
+    deathCause = DEATH_DOBERMAN;
+    deathTimer = 1.65f;
+    render();
+    screenshot("shot_death_dog.bmp");
     SDL_RenderPresent(ren);
 
     // 9 — экран поражения
@@ -4666,7 +4969,7 @@ void Game::makeScenarios()
     state = ST_PLAY;
     kills = 7;
     lives = 0;
-    deathCause = DEATH_ZOMBIE;
+    deathCause = DEATH_BAT;
     deathTimer = 0;
     titleBlink = 0.25f;
     state = ST_GAMEOVER;
@@ -4837,7 +5140,8 @@ void Game::runSmoke()
             spiderCrawl ? 1 : 0);
     monsters.clear();
 
-    // 2b. Метатель ножей: ускоренный нож долетает и убивает.
+    // 2b. Браток с пистолетом: ускоренная пуля долетает и убивает,
+    //     но остаётся медленнее Коляна.
     player = Body{};
     player.w = 10;
     player.h = PLAYER_H;
@@ -4848,7 +5152,7 @@ void Game::runSmoke()
     player.invuln = 0;
     snapCamera();
     monsters.clear();
-    knives.clear();
+    bullets.clear();
     {
         Monster m;
         m.type = 2;
@@ -4863,23 +5167,118 @@ void Game::runSmoke()
         m.throwCd = 0.0f;
         monsters.push_back(m);
     }
-    bool knifeThrown = false;
-    for (int i = 0; i < 40 && !knifeThrown; ++i) {
+    bool bulletThrown = false;
+    float bulletVx = 0.0f;
+    for (int i = 0; i < 40 && !bulletThrown; ++i) {
         update(1.0f / 120.0f, Input{});
-        if (!knives.empty()) knifeThrown = true;
+        if (!bullets.empty()) {
+            bulletThrown = true;
+            bulletVx = bullets.front().vx;
+        }
     }
-    bool knifeSlow = knifeThrown &&
-                     std::fabs(knives.front().vx) < RUN_SPEED * 0.6f;
+    bool bulletSlowerThanPlayer = (BULLET_SPEED < RUN_SPEED);
+    bool bulletSpeedOk = bulletThrown &&
+                         std::fabs(std::fabs(bulletVx) - BULLET_SPEED) < 0.01f &&
+                         bulletSlowerThanPlayer;
     for (int i = 0; i < 700 && state == ST_PLAY; ++i)
         update(1.0f / 120.0f, Input{});
-    bool knifeKill = (state == ST_DYING && deathCause == DEATH_KNIFE);
-    SDL_Log("knife: thrown=%d slow=%d kill=%d cause=%d",
-            knifeThrown ? 1 : 0, knifeSlow ? 1 : 0, knifeKill ? 1 : 0, deathCause);
+    bool bulletKill = (state == ST_DYING && deathCause == DEATH_BULLET);
+    SDL_Log("bullet: thrown=%d speed=%.2f/%.2f slower=%d kill=%d cause=%d",
+            bulletThrown ? 1 : 0, std::fabs(bulletVx), BULLET_SPEED,
+            bulletSlowerThanPlayer ? 1 : 0, bulletKill ? 1 : 0, deathCause);
     state = ST_PLAY;
+
+    // 2b2. Патруль братка с пистолетом — ровно на 10% медленнее пули.
+    monsters.clear();
+    bullets.clear();
+    player = Body{};
+    player.w = 10;
+    player.h = PLAYER_H;
+    player.x = 5 * 16.0f + 3.0f;
+    player.y = 482.0f;
+    player.grounded = true;
+    player.invuln = 99.0f;
+    {
+        Monster m;
+        m.type = 2;
+        m.b.w = 14;
+        m.b.h = 26;
+        m.b.x = 96 * 16.0f;
+        m.b.y = 482.0f + 4.0f;
+        m.b.facing = 1;
+        m.hp = m.maxHp = 3;
+        m.homeX = m.b.x;
+        m.homeY = m.b.y;
+        m.throwCd = 99.0f;
+        monsters.push_back(m);
+    }
+    for (int i = 0; i < 30; ++i) update(1.0f / 120.0f, Input{});
+    float patrolX1 = monsters.empty() ? 0.0f : monsters.front().b.x;
+    for (int i = 0; i < 60; ++i) update(1.0f / 120.0f, Input{});
+    float patrolX2 = monsters.empty() ? patrolX1 : monsters.front().b.x;
+    float patrolSpeed = std::fabs(patrolX2 - patrolX1) * 2.0f;
+    bool pistolPatrolOk = !monsters.empty() &&
+                          std::fabs(patrolSpeed - PISTOL_THUG_SPEED) < 2.0f &&
+                          patrolSpeed < BULLET_SPEED;
+    SDL_Log("pistolpatrol: speed=%.2f want=%.2f ok=%d", patrolSpeed,
+            PISTOL_THUG_SPEED, pistolPatrolOk ? 1 : 0);
+    monsters.clear();
+    bullets.clear();
+
+    // 2c. Доберман: есть на втором уровне, хитбокс занижен.
+    resetWorld(1);
+    state = ST_PLAY;
+    bool dogOnMap = false;
+    bool dogLowHitbox = false;
+    for (const Monster& m : monsters) {
+        if (m.type == 3) {
+            dogOnMap = true;
+            dogLowHitbox = (m.b.h <= 16.0f && m.b.w >= 20.0f);
+        }
+    }
+    SDL_Log("doberman: onmap=%d low=%d", dogOnMap ? 1 : 0, dogLowHitbox ? 1 : 0);
+
+    // 2d. Доберман кусает — Колян погибает именно от собаки.
+    monsters.clear();
+    bullets.clear();
+    lives = START_LIVES;
+    player = Body{};
+    player.w = 10;
+    player.h = PLAYER_H;
+    player.x = 50 * 16.0f + 3.0f;
+    player.y = 32 * 16.0f - PLAYER_H;
+    player.facing = 1;
+    player.grounded = true;
+    player.invuln = 0;
+    snapCamera();
+    {
+        Monster d;
+        d.type = 3;
+        d.b.w = 24;
+        d.b.h = 14;
+        d.b.x = player.x + 40.0f;
+        d.b.y = 32 * 16.0f - d.b.h;
+        d.b.facing = -1;
+        d.hp = d.maxHp = 2;
+        d.homeX = d.b.x;
+        d.homeY = d.b.y;
+        monsters.push_back(d);
+    }
+    for (int i = 0; i < 300 && state == ST_PLAY; ++i)
+        update(1.0f / 120.0f, Input{});
+    bool dogKill = (state == ST_DYING && deathCause == DEATH_DOBERMAN);
+    SDL_Log("dogkill: state=%d cause=%d ok=%d", state, deathCause,
+            dogKill ? 1 : 0);
+
+    resetWorld(0);
+    state = ST_PLAY;
+    monsters.clear();
+    bullets.clear();
+    lives = START_LIVES;
 
     // 3. Подбор кубка на верхней галерее: +1000 очков.
     monsters.clear();
-    knives.clear();
+    bullets.clear();
     int beforeCups = cupsGot;
     int beforeScore = score;
     player.x = 10 * 16.0f + 2.0f;
@@ -4929,7 +5328,8 @@ void Game::runSmoke()
             startCheckpoint ? 1 : 0, cupCheckpoint ? 1 : 0,
             cupRespawn ? 1 : 0, cupCheckpointOk ? 1 : 0);
 
-    // 3b. Очки за убийство: зомби 100, паук 200, метатель 300.
+    // 3b. Очки за убийство: браток с битой 100, паук 200,
+    //     браток с пистолетом 300, доберман 250.
     score = 0;
     size_t popupBefore = popups.size();
     {
@@ -4951,12 +5351,19 @@ void Game::runSmoke()
         th.b.y = 400.0f;
         th.hp = 1;
         damageMonster(th, 5, 1.0f);
+        Monster dg;
+        dg.type = 3;
+        dg.b.x = 260.0f;
+        dg.b.y = 400.0f;
+        dg.hp = 1;
+        damageMonster(dg, 5, 1.0f);
     }
-    bool killScore = (score == 100 + 200 + 300);
-    bool popupOk = (popups.size() == popupBefore + 3 &&
+    bool killScore = (score == 100 + 200 + 300 + 250);
+    bool popupOk = (popups.size() == popupBefore + 4 &&
                     popups[popupBefore].value == 100 &&
                     popups[popupBefore + 1].value == 200 &&
-                    popups[popupBefore + 2].value == 300);
+                    popups[popupBefore + 2].value == 300 &&
+                    popups[popupBefore + 3].value == 250);
     SDL_Log("killscore: total=%d popups=%d ok=%d", score,
             static_cast<int>(popups.size()), (killScore && popupOk) ? 1 : 0);
 
@@ -5056,7 +5463,7 @@ void Game::runSmoke()
     SDL_Log("doublejump: space_with_w=%d airJumps=%d",
             spaceWhileHoldingW ? 1 : 0, player.airJumps);
 
-    // 5. Мгновенный выстрел дробовика по зомби.
+    // 5. Мгновенный выстрел дробовика по братку с битой.
     player = Body{};
     player.w = 10;
     player.h = PLAYER_H;
@@ -5115,7 +5522,7 @@ void Game::runSmoke()
     SDL_Log("look: up=%d down=%d forward=%d", lookUpOk ? 1 : 0,
             lookDownOk ? 1 : 0, lookForward ? 1 : 0);
 
-    // 5c. Диагональный выстрел вверх: зомби висит над лучом.
+    // 5c. Диагональный выстрел вверх: браток висит над лучом.
     player = Body{};
     player.w = 10;
     player.h = PLAYER_H;
@@ -5277,7 +5684,7 @@ void Game::runSmoke()
             reloadDuration, reloadProportional ? 1 : 0, reloadLocked ? 1 : 0,
             reloadDone ? 1 : 0);
 
-    // 7. Смерть от зомби, три жизни и экран поражения.
+    // 7. Смерть от братка с битой, три жизни и экран поражения.
     resetWorld(0);
     state = ST_PLAY;
     monsters.clear();
@@ -5299,7 +5706,7 @@ void Game::runSmoke()
     }
     update(1.0f / 120.0f, Input{});
     bool dying = (state == ST_DYING && lives == START_LIVES - 1 &&
-                  deathCause == DEATH_ZOMBIE);
+                  deathCause == DEATH_BAT);
     SDL_Log("death: state=%d lives=%d cause=%d", state, lives, deathCause);
 
     monsters.clear();
@@ -5552,7 +5959,8 @@ void Game::runSmoke()
               popupRise && popupGone &&
               oneJumpOnly && doubleJump && jumpReset &&
               spaceWhileHoldingW && shotOk && recoilOk &&
-              tracerOk && knifeThrown && knifeSlow && knifeKill &&
+              tracerOk && bulletThrown && bulletSpeedOk && bulletKill &&
+              pistolPatrolOk && dogOnMap && dogLowHitbox && dogKill &&
               diagUpOk && diagDownOk && recoilUpOk && recoilDownOk &&
               noAirShot && lookUpOk && lookDownOk &&
               lookForward && reloadOk && reloadWaitHeld && reloadStarted &&
