@@ -169,7 +169,10 @@ struct Light {
 
 enum DecorType {
     DEC_WINDOW, DEC_PAINTING, DEC_SCONCE, DEC_CHANDELIER,
-    DEC_SHELF, DEC_MIRROR, DEC_CLOCK
+    DEC_SHELF, DEC_MIRROR, DEC_CLOCK,
+    // фурнитура технического этажа (второй уровень)
+    DEC_EMERGENCY, DEC_STEPLADDER, DEC_PIPE, DEC_VENT, DEC_BOX,
+    DEC_SIGN, DEC_CABLE
 };
 
 struct Input {
@@ -777,6 +780,7 @@ struct Game {
     void drawCupIcon(int x, int y, float bob);
 
     void drawWallpaper();
+    void drawTechnicalWallpaper();
     void drawTiles();
     void drawBrick(int x, int y, int tx, int ty);
     void drawFloorTile(int x, int y, int tx, int ty);
@@ -793,6 +797,13 @@ struct Game {
     void drawShelf(int wx, int wy);
     void drawMirror(int wx, int wy);
     void drawClock(int wx, int wy);
+    void drawEmergencyLamp(int wx, int wy);
+    void drawStepLadder(int wx, int wy);
+    void drawTechPipes(int wx, int wy);
+    void drawTechVent(int wx, int wy);
+    void drawTechBox(int wx, int wy);
+    void drawTechSign(int wx, int wy);
+    void drawCableCoil(int wx, int wy);
     void drawDoor();
     void drawSecretDoor();
     void drawCups();
@@ -1024,41 +1035,52 @@ void Game::resetWorld(int index)
         D(22, 5, DEC_MIRROR);
         D(66, 5, DEC_MIRROR);
     } else {
-        // Второй этаж декорируем процедурно, чтобы не тонуть в координатах.
+        // Второй уровень — технический этаж: вместо картин и канделябров
+        // развешиваем аварийные лампы, вентиляцию, щиты, трубы и стремянки.
         auto free = [&](int tx, int ty) {
             return lvl.at(tx, ty) == '.';
         };
-        for (int tx = 3; tx < lvl.w - 3; ++tx) {
-            if (tx % 11 == 4 && free(tx, 2)) D(tx, 2, DEC_WINDOW);
-            if (tx % 18 == 1 && free(tx, 5)) D(tx, 5, DEC_PAINTING);
-            if (tx % 7 == 2 && free(tx, 6)) D(tx, 6, DEC_SCONCE);
-            if (tx % 13 == 6) D(tx, 0, DEC_CHANDELIER);
-            if (tx % 16 == 3) D(tx, 8, DEC_CHANDELIER);
-            if (tx % 12 == 6 && free(tx, 9)) D(tx, 9, DEC_WINDOW);
-            if (tx % 20 == 3 && free(tx, 10)) D(tx, 10, DEC_PAINTING);
-            if (tx % 8 == 2 && free(tx, 11)) D(tx, 11, DEC_SCONCE);
-            if (tx % 15 == 7 && free(tx, 12)) D(tx, 12, DEC_SHELF);
-            if (tx % 23 == 9 && free(tx, 12)) D(tx, 12, DEC_CLOCK);
-            if (tx % 19 == 8 && free(tx, 5)) D(tx, 5, DEC_MIRROR);
+        const int bandTop[] = {1, 9, 18, 26};     // под перекрытием
+        const int bandFloor[] = {8, 15, 25, 32};  // пол этажа
+        for (int b = 0; b < 4; ++b) {
+            const int top = bandTop[b];
+            const int floor = bandFloor[b];
+            for (int tx = 3; tx < lvl.w - 3; ++tx) {
+                if (tx % 12 == 4 && free(tx, top))
+                    D(tx, top, DEC_EMERGENCY);
+                if (tx % 17 == 8 && free(tx, top + 1))
+                    D(tx, top + 1, DEC_VENT);
+                if (tx % 21 == 5 && free(tx, top + 2))
+                    D(tx, top + 2, DEC_BOX);
+                if (tx % 25 == 15 && free(tx, top + 3))
+                    D(tx, top + 3, DEC_SIGN);
+                if (tx % 19 == 11 && free(tx, top + 1) && free(tx, top + 2) &&
+                    free(tx, top + 3) && free(tx, top + 4))
+                    D(tx, top + 1, DEC_PIPE);
+                if (tx % 23 == 17 && free(tx, top + 4))
+                    D(tx, top + 4, DEC_CABLE);
+                if (tx % 15 == 7 && free(tx, floor - 2) && free(tx, floor - 1))
+                    D(tx, floor - 2, DEC_STEPLADDER);
+            }
         }
     }
 
     // Три этажа: базовый декор второго этажа повторяем вниз на 17 и 34 ряда.
-    {
+    // У технического этажа декор уже расставлен по всем четырём полосам,
+    // поэтому дублировать его не нужно.
+    if (levelIndex == 0) {
         const size_t n = decor.size();
         // первый этаж — полная копия
         for (size_t i = 0; i < n; ++i)
             decor.push_back(Decor{decor[i].tx, decor[i].ty + 17, decor[i].type});
         // подвал — без окон, портретов и зеркал; он вдвое ниже, поэтому
         // украшения, вылезающие за его пол, отбрасываем
-        if (levelIndex == 0) {
-            for (size_t i = 0; i < n; ++i) {
-                int t = decor[i].type;
-                if (t == DEC_WINDOW || t == DEC_PAINTING || t == DEC_MIRROR) continue;
-                int by = decor[i].ty + 34;
-                if (by > lvl.h - 3) continue;
-                decor.push_back(Decor{decor[i].tx, by, t});
-            }
+        for (size_t i = 0; i < n; ++i) {
+            int t = decor[i].type;
+            if (t == DEC_WINDOW || t == DEC_PAINTING || t == DEC_MIRROR) continue;
+            int by = decor[i].ty + 34;
+            if (by > lvl.h - 3) continue;
+            decor.push_back(Decor{decor[i].tx, by, t});
         }
     }
 
@@ -1074,6 +1096,13 @@ void Game::resetWorld(int index)
             case DEC_SHELF:      return SDL_Rect{d.tx * 16, d.ty * 16 - 32, 48, 48};
             case DEC_MIRROR:     return SDL_Rect{d.tx * 16 - 2, d.ty * 16, 26, 37};
             case DEC_CLOCK:      return SDL_Rect{d.tx * 16 - 2, d.ty * 16 - 2, 26, 50};
+            case DEC_EMERGENCY:  return SDL_Rect{d.tx * 16 - 2, d.ty * 16 - 2, 20, 18};
+            case DEC_STEPLADDER: return SDL_Rect{d.tx * 16 - 2, d.ty * 16 - 2, 20, 34};
+            case DEC_PIPE:       return SDL_Rect{d.tx * 16 - 4, d.ty * 16 - 2, 24, 56};
+            case DEC_VENT:       return SDL_Rect{d.tx * 16 - 1, d.ty * 16 - 2, 18, 16};
+            case DEC_BOX:        return SDL_Rect{d.tx * 16 - 2, d.ty * 16 - 2, 22, 34};
+            case DEC_SIGN:       return SDL_Rect{d.tx * 16 - 2, d.ty * 16 - 2, 30, 18};
+            case DEC_CABLE:      return SDL_Rect{d.tx * 16 - 2, d.ty * 16 - 8, 20, 28};
             default:             return SDL_Rect{d.tx * 16, d.ty * 16, 16, 16};
         }
     };
@@ -2489,6 +2518,12 @@ void Game::drawCupIcon(int x, int y, float bob)
 
 void Game::drawWallpaper()
 {
+    // Второй уровень — технический этаж, у него свой бетонный фон.
+    if (levelIndex == 1) {
+        drawTechnicalWallpaper();
+        return;
+    }
+
     int tx0 = std::max(0, static_cast<int>(camX / TILE) - 1);
     int tx1 = std::min(lvl.w - 1, static_cast<int>((camX + VIEW_W) / TILE) + 1);
 
@@ -2531,6 +2566,101 @@ void Game::drawWallpaper()
     }
 }
 
+void Game::drawTechnicalWallpaper()
+{
+    int tx0 = std::max(0, static_cast<int>(camX / TILE) - 1);
+    int tx1 = std::min(lvl.w - 1, static_cast<int>((camX + VIEW_W) / TILE) + 1);
+
+    // Технический этаж: бетонные панели, кабельные лотки и аварийная
+    // разметка. Полосы по 272 px совпадают с этажами карты.
+    int band = 0;
+    for (float base = 0; base < lvl.h * TILE; base += 272.0f, ++band) {
+        if (base + 272.0f < camY - 8.0f || base > camY + VIEW_H + 8.0f) continue;
+
+        for (int tx = tx0; tx <= tx1; ++tx) {
+            // Цвет — на крупную панель шириной 4 тайла, а не на каждый тайл:
+            // так стена читается как бетонные плиты, а не как шум.
+            int block = tx / 4;
+            uint32_t h = hash2(block, band * 37 + 11);
+            int v = static_cast<int>(h % 14);
+
+            // Холодный серо-зелёный бетон, низ панели темнее.
+            SDL_Color panel{static_cast<Uint8>(42 + v), static_cast<Uint8>(48 + v),
+                            static_cast<Uint8>(48 + v), 255};
+            fillW(tx * 16.0f, base + 16.0f, 16.0f, 112.0f, panel);
+            fillW(tx * 16.0f, base + 144.0f, 16.0f, 96.0f, shade(panel, 0.72f));
+
+            // Вертикальные швы бетонных плит и заклёпки по углам.
+            if (tx % 4 == 0) {
+                fillW(tx * 16.0f, base + 16.0f, 1.0f, 224.0f,
+                      SDL_Color{20, 24, 25, 255});
+                fillW(tx * 16.0f + 1.0f, base + 16.0f, 1.0f, 224.0f,
+                      SDL_Color{78, 86, 86, 90});
+                fillW(tx * 16.0f + 3.0f, base + 22.0f, 2.0f, 2.0f,
+                      SDL_Color{98, 104, 104, 190});
+                fillW(tx * 16.0f + 3.0f, base + 138.0f, 2.0f, 2.0f,
+                      SDL_Color{88, 94, 94, 160});
+                fillW(tx * 16.0f + 3.0f, base + 150.0f, 2.0f, 2.0f,
+                      SDL_Color{90, 96, 96, 160});
+                fillW(tx * 16.0f + 3.0f, base + 230.0f, 2.0f, 2.0f,
+                      SDL_Color{80, 86, 86, 150});
+            }
+
+            // Потёки и пятна на бетоне.
+            if ((h >> 4) % 9 == 0)
+                fillW(tx * 16.0f + 5.0f, base + 28.0f, 2.0f,
+                      22.0f + static_cast<float>(h % 24),
+                      SDL_Color{28, 26, 22, 70});
+            if ((h >> 8) % 13 == 0)
+                fillW(tx * 16.0f + 9.0f, base + 160.0f, 3.0f, 18.0f,
+                      SDL_Color{20, 24, 22, 90});
+
+            // Кабельный лоток под перекрытием.
+            fillW(tx * 16.0f, base + 20.0f, 16.0f, 3.0f,
+                  (tx % 3 == 1) ? SDL_Color{26, 28, 30, 255}
+                                : SDL_Color{34, 36, 38, 255});
+            fillW(tx * 16.0f, base + 20.0f, 16.0f, 1.0f,
+                  SDL_Color{82, 88, 90, 255});
+            if ((h >> 6) % 3 == 0)
+                fillW(tx * 16.0f + 3.0f, base + 22.0f, 10.0f, 1.0f,
+                      SDL_Color{98, 76, 50, 220});
+        }
+
+        // Горизонтальный шов между верхней и нижней плитой.
+        fillW(camX, base + 143.0f, static_cast<float>(VIEW_W), 2.0f,
+              SDL_Color{20, 24, 25, 255});
+        fillW(camX, base + 145.0f, static_cast<float>(VIEW_W), 1.0f,
+              SDL_Color{78, 86, 86, 80});
+
+        // Аварийная разметка вдоль полов: жёлто-чёрная полоса на стене
+        // прямо над перекрытием.
+        const int row0 = static_cast<int>(base / TILE);
+        for (int ty = row0; ty < row0 + 17; ++ty) {
+            for (int tx = tx0; tx <= tx1; ++tx) {
+                if (lvl.at(tx, ty) != '.') continue;
+                char below = lvl.at(tx, ty + 1);
+                if (below != '=' && below != '#') continue;
+                float hy = ty * 16.0f + 10.0f;
+                fillW(tx * 16.0f, hy, 16.0f, 6.0f,
+                      SDL_Color{150, 112, 30, 255});
+                for (int k = 0; k < 16; k += 6)
+                    fillW(tx * 16.0f + k, hy, 3.0f, 6.0f,
+                          SDL_Color{30, 28, 24, 255});
+            }
+        }
+
+        // Пыльный низ стены и холодный отблеск под перекрытием.
+        for (int i = 0; i < 5; ++i) {
+            fillW(camX, base + 120.0f + i * 4.0f, static_cast<float>(VIEW_W),
+                  4.0f, SDL_Color{10, 12, 12, static_cast<Uint8>(6 + i * 3)});
+            fillW(camX, base + 236.0f + i * 7.0f, static_cast<float>(VIEW_W),
+                  7.0f, SDL_Color{8, 10, 10, static_cast<Uint8>(8 + i * 4)});
+        }
+        fillW(camX, base + 16.0f, static_cast<float>(VIEW_W), 1.0f,
+              SDL_Color{96, 104, 104, 90});
+    }
+}
+
 // ---------------------------------------------------------------------------
 //  Тайлы
 // ---------------------------------------------------------------------------
@@ -2558,6 +2688,25 @@ void Game::drawTiles()
 
 void Game::drawBrick(int x, int y, int tx, int ty)
 {
+    if (levelIndex == 1) {
+        // Технический этаж: серый бетонный блок с тёмным швом.
+        uint32_t bh = hash2(tx, ty);
+        int bv = static_cast<int>(bh % 10);
+        SDL_Color bbase{static_cast<Uint8>(60 + bv), static_cast<Uint8>(64 + bv),
+                        static_cast<Uint8>(64 + bv), 255};
+        SDL_SetRenderDrawColor(ren, bbase.r, bbase.g, bbase.b, 255);
+        SDL_Rect br{x, y, 16, 16};
+        SDL_RenderFillRect(ren, &br);
+        SDL_SetRenderDrawColor(ren, 38, 42, 42, 255);
+        SDL_RenderDrawLine(ren, x, y + 7, x + 15, y + 7);
+        SDL_RenderDrawLine(ren, x, y + 15, x + 15, y + 15);
+        int boff = (ty % 2 == 0) ? 8 : 0;
+        SDL_RenderDrawLine(ren, x + boff, y, x + boff, y + 6);
+        SDL_SetRenderDrawColor(ren, bbase.r + 20, bbase.g + 20, bbase.b + 18, 80);
+        SDL_RenderDrawLine(ren, x + 1, y + 1, x + 14, y + 1);
+        return;
+    }
+
     uint32_t h = hash2(tx, ty);
     int v = static_cast<int>(h % 12);
     SDL_Color base{static_cast<Uint8>(58 + v), static_cast<Uint8>(39 + v / 2),
@@ -2580,6 +2729,26 @@ void Game::drawBrick(int x, int y, int tx, int ty)
 void Game::drawFloorTile(int x, int y, int tx, int ty)
 {
     (void)tx;
+    if (levelIndex == 1) {
+        // Технический этаж: стальной настил с поперечными рёбрами.
+        SDL_SetRenderDrawColor(ren, 58, 62, 64, 255);
+        SDL_Rect fr{x, y, 16, 16};
+        SDL_RenderFillRect(ren, &fr);
+        SDL_SetRenderDrawColor(ren, 92, 98, 100, 255);
+        SDL_Rect ftop{x, y, 16, 4};
+        SDL_RenderFillRect(ren, &ftop);
+        SDL_SetRenderDrawColor(ren, 128, 134, 136, 255);
+        SDL_Rect fshine{x, y, 16, 1};
+        SDL_RenderFillRect(ren, &fshine);
+        SDL_SetRenderDrawColor(ren, 40, 44, 46, 255);
+        int foff = (ty % 2 == 0) ? 4 : 12;
+        SDL_RenderDrawLine(ren, x + foff, y + 4, x + foff, y + 15);
+        SDL_SetRenderDrawColor(ren, 22, 26, 28, 160);
+        SDL_Rect fbottom{x, y + 13, 16, 3};
+        SDL_RenderFillRect(ren, &fbottom);
+        return;
+    }
+
     SDL_SetRenderDrawColor(ren, 62, 40, 29, 255);
     SDL_Rect r{x, y, 16, 16};
     SDL_RenderFillRect(ren, &r);
@@ -2600,6 +2769,40 @@ void Game::drawFloorTile(int x, int y, int tx, int ty)
 
 void Game::drawTableTile(int x, int y, int tx, int ty)
 {
+    if (levelIndex == 1) {
+        // Технический этаж: вместо стола — тяжёлый металлический ящик.
+        SDL_SetRenderDrawColor(ren, 62, 66, 62, 255);
+        SDL_Rect cr{x, y, 16, 16};
+        SDL_RenderFillRect(ren, &cr);
+        if (lvl.at(tx, ty - 1) != 't') {
+            SDL_SetRenderDrawColor(ren, 104, 108, 96, 255);
+            SDL_Rect ctop{x, y, 16, 5};
+            SDL_RenderFillRect(ren, &ctop);
+            SDL_SetRenderDrawColor(ren, 138, 142, 126, 255);
+            SDL_Rect cline{x, y, 16, 1};
+            SDL_RenderFillRect(ren, &cline);
+        }
+        if (lvl.at(tx, ty + 1) != 't') {
+            SDL_SetRenderDrawColor(ren, 40, 44, 42, 255);
+            SDL_Rect cshadow{x, y + 13, 16, 3};
+            SDL_RenderFillRect(ren, &cshadow);
+            SDL_SetRenderDrawColor(ren, 48, 52, 48, 255);
+            SDL_Rect clegL{x + 2, y + 5, 3, 11};
+            SDL_Rect clegR{x + 11, y + 5, 3, 11};
+            SDL_RenderFillRect(ren, &clegL);
+            SDL_RenderFillRect(ren, &clegR);
+        }
+        SDL_SetRenderDrawColor(ren, 82, 86, 80, 160);
+        SDL_Rect crib{x + 3, y + 8, 10, 1};
+        SDL_RenderFillRect(ren, &crib);
+        SDL_SetRenderDrawColor(ren, 152, 156, 140, 140);
+        for (int i = 0; i < 2; ++i) {
+            SDL_Rect rivet{x + 3 + i * 9, y + 11, 1, 1};
+            SDL_RenderFillRect(ren, &rivet);
+        }
+        return;
+    }
+
     SDL_SetRenderDrawColor(ren, 76, 47, 30, 255);
     SDL_Rect r{x, y, 16, 16};
     SDL_RenderFillRect(ren, &r);
@@ -2629,6 +2832,33 @@ void Game::drawTableTile(int x, int y, int tx, int ty)
 void Game::drawStepTile(int x, int y, int tx, int ty)
 {
     (void)ty;
+    if (levelIndex == 1) {
+        // Технический этаж: стальная ступень с жёлтой кромкой.
+        SDL_SetRenderDrawColor(ren, 78, 84, 86, 255);
+        SDL_Rect sboard{x, y, 16, 7};
+        SDL_RenderFillRect(ren, &sboard);
+        SDL_SetRenderDrawColor(ren, 128, 134, 136, 255);
+        SDL_Rect stop{x, y, 16, 2};
+        SDL_RenderFillRect(ren, &stop);
+        SDL_SetRenderDrawColor(ren, 170, 132, 40, 255);
+        SDL_Rect sstripe{x, y + 2, 16, 1};
+        SDL_RenderFillRect(ren, &sstripe);
+        SDL_SetRenderDrawColor(ren, 42, 46, 48, 255);
+        SDL_Rect slow{x, y + 6, 16, 2};
+        SDL_RenderFillRect(ren, &slow);
+        if (lvl.at(tx - 1, ty) != 'S') {
+            SDL_SetRenderDrawColor(ren, 36, 40, 42, 255);
+            SDL_Rect scap{x, y, 2, 8};
+            SDL_RenderFillRect(ren, &scap);
+        }
+        if (lvl.at(tx + 1, ty) != 'S') {
+            SDL_SetRenderDrawColor(ren, 36, 40, 42, 255);
+            SDL_Rect scap{x + 14, y, 2, 8};
+            SDL_RenderFillRect(ren, &scap);
+        }
+        return;
+    }
+
     // Широкая деревянная ступень: доска у верхней кромки тайла.
     SDL_SetRenderDrawColor(ren, 92, 58, 34, 255);
     SDL_Rect board{x, y, 16, 7};
@@ -2660,6 +2890,24 @@ void Game::drawStepTile(int x, int y, int tx, int ty)
 
 void Game::drawLadder(int x, int y)
 {
+    if (levelIndex == 1) {
+        // Технический этаж: сварная стальная лестница.
+        SDL_SetRenderDrawColor(ren, 96, 102, 104, 255);
+        SDL_Rect mrailL{x + 4, y, 2, 16};
+        SDL_Rect mrailR{x + 11, y, 2, 16};
+        SDL_RenderFillRect(ren, &mrailL);
+        SDL_RenderFillRect(ren, &mrailR);
+        SDL_SetRenderDrawColor(ren, 138, 144, 146, 255);
+        SDL_Rect mrung1{x + 4, y + 3, 9, 2};
+        SDL_Rect mrung2{x + 4, y + 10, 9, 2};
+        SDL_RenderFillRect(ren, &mrung1);
+        SDL_RenderFillRect(ren, &mrung2);
+        SDL_SetRenderDrawColor(ren, 56, 60, 62, 140);
+        SDL_Rect mshade{x + 12, y, 1, 16};
+        SDL_RenderFillRect(ren, &mshade);
+        return;
+    }
+
     SDL_SetRenderDrawColor(ren, 132, 92, 50, 255);
     SDL_Rect railL{x + 4, y, 2, 16};
     SDL_Rect railR{x + 11, y, 2, 16};
@@ -2717,6 +2965,17 @@ void Game::drawPitTile(int x, int y, int tx, int ty)
 
 void Game::drawRugs()
 {
+    // На техническом этаже вместо ковров — жёлто-чёрная разметка.
+    if (levelIndex == 1) {
+        for (const RectF& rug : rugs) {
+            fillW(rug.x, rug.y, rug.w, rug.h, SDL_Color{134, 102, 30, 235});
+            for (float px = rug.x + 2; px < rug.x + rug.w - 2; px += 10)
+                fillW(px, rug.y, 5, rug.h, SDL_Color{30, 28, 24, 235});
+            fillW(rug.x, rug.y, rug.w, 1, SDL_Color{196, 160, 70, 200});
+        }
+        return;
+    }
+
     for (const RectF& rug : rugs) {
         fillW(rug.x, rug.y, rug.w, rug.h, SDL_Color{108, 30, 38, 235});
         fillW(rug.x + 2, rug.y + 1, rug.w - 4, rug.h - 2, SDL_Color{132, 42, 48, 235});
@@ -2748,6 +3007,13 @@ void Game::drawDecor()
             case DEC_SHELF:       drawShelf(static_cast<int>(wx), static_cast<int>(wy)); break;
             case DEC_MIRROR:      drawMirror(static_cast<int>(wx), static_cast<int>(wy)); break;
             case DEC_CLOCK:       drawClock(static_cast<int>(wx), static_cast<int>(wy)); break;
+            case DEC_EMERGENCY:   drawEmergencyLamp(static_cast<int>(wx), static_cast<int>(wy)); break;
+            case DEC_STEPLADDER:  drawStepLadder(static_cast<int>(wx), static_cast<int>(wy)); break;
+            case DEC_PIPE:        drawTechPipes(static_cast<int>(wx), static_cast<int>(wy)); break;
+            case DEC_VENT:        drawTechVent(static_cast<int>(wx), static_cast<int>(wy)); break;
+            case DEC_BOX:         drawTechBox(static_cast<int>(wx), static_cast<int>(wy)); break;
+            case DEC_SIGN:        drawTechSign(static_cast<int>(wx), static_cast<int>(wy)); break;
+            case DEC_CABLE:       drawCableCoil(static_cast<int>(wx), static_cast<int>(wy)); break;
             default: break;
         }
     }
@@ -3034,6 +3300,250 @@ void Game::drawClock(int wx, int wy)
     SDL_SetRenderDrawColor(ren, 124, 88, 46, 255);
     SDL_Rect top{x - 2, y - 2, 26, 3};
     SDL_RenderFillRect(ren, &top);
+}
+
+// ---------------------------------------------------------------------------
+//  Фурнитура технического этажа
+// ---------------------------------------------------------------------------
+void Game::drawEmergencyLamp(int wx, int wy)
+{
+    int x = sx(static_cast<float>(wx)) + 8;
+    int y = sy(static_cast<float>(wy));
+    if (x < -24 || x > VIEW_W + 24) return;
+
+    // Кронштейн под перекрытием и защитная сетка.
+    SDL_SetRenderDrawColor(ren, 58, 60, 64, 255);
+    SDL_Rect plate{x - 6, y - 2, 12, 3};
+    SDL_Rect stem{x - 1, y + 1, 2, 4};
+    SDL_RenderFillRect(ren, &plate);
+    SDL_RenderFillRect(ren, &stem);
+
+    SDL_SetRenderDrawColor(ren, 74, 76, 80, 255);
+    SDL_Rect body{x - 5, y + 5, 10, 8};
+    SDL_RenderFillRect(ren, &body);
+    // Железный козырёк, чтобы лампа читалась как аварийная.
+    SDL_SetRenderDrawColor(ren, 50, 52, 56, 255);
+    SDL_Rect hood{x - 7, y + 3, 14, 3};
+    SDL_RenderFillRect(ren, &hood);
+    SDL_SetRenderDrawColor(ren, 100, 104, 108, 255);
+    SDL_Rect hoodTop{x - 7, y + 3, 14, 1};
+    SDL_RenderFillRect(ren, &hoodTop);
+    SDL_SetRenderDrawColor(ren, 34, 36, 40, 255);
+    for (int i = -4; i <= 4; i += 2) {
+        SDL_Rect bar{x + i, y + 4, 1, 10};
+        SDL_RenderFillRect(ren, &bar);
+    }
+    SDL_Rect cap{x - 6, y + 4, 12, 1};
+    SDL_Rect cap2{x - 6, y + 13, 12, 1};
+    SDL_RenderFillRect(ren, &cap);
+    SDL_RenderFillRect(ren, &cap2);
+
+    // Мигающая красная лампа.
+    float wave = 0.5f + 0.5f * std::sin(timeSec * 4.6f + wx * 0.05f);
+    float pulse = 0.25f + 0.75f * wave * wave;
+    fillCircle(x, y + 9, 3, SDL_Color{216, 54, 44,
+                                      static_cast<Uint8>(130 + 120 * pulse)});
+    fillCircle(x, y + 9, 1, SDL_Color{255, 190, 160,
+                                      static_cast<Uint8>(110 + 140 * pulse)});
+
+    addLight(wx + 8.0f, wy + 10.0f, 56.0f, SDL_Color{255, 66, 48, 255},
+             45.0f + 55.0f * pulse);
+}
+
+void Game::drawStepLadder(int wx, int wy)
+{
+    int x = sx(static_cast<float>(wx)) + 8;
+    int y = sy(static_cast<float>(wy));
+    if (x < -24 || x > VIEW_W + 24) return;
+
+    // Задняя опора и передние стойки.
+    SDL_SetRenderDrawColor(ren, 126, 88, 42, 255);
+    SDL_RenderDrawLine(ren, x + 7, y + 2, x + 11, y + 30);
+    SDL_SetRenderDrawColor(ren, 156, 110, 50, 255);
+    SDL_RenderDrawLine(ren, x - 6, y + 2, x - 8, y + 30);
+    SDL_RenderDrawLine(ren, x - 5, y + 2, x - 7, y + 30);
+
+    // Ступени.
+    SDL_SetRenderDrawColor(ren, 182, 132, 60, 255);
+    for (int i = 0; i < 4; ++i) {
+        int sy0 = y + 7 + i * 6;
+        SDL_Rect step{x - 6 + i / 2, sy0, 13 - i / 2, 2};
+        SDL_RenderFillRect(ren, &step);
+    }
+
+    // Шарнир и резиновые башмаки.
+    SDL_SetRenderDrawColor(ren, 124, 128, 130, 255);
+    SDL_Rect hinge{x - 2, y + 1, 4, 2};
+    SDL_RenderFillRect(ren, &hinge);
+    SDL_SetRenderDrawColor(ren, 34, 32, 30, 255);
+    SDL_Rect foot1{x - 10, y + 29, 4, 2};
+    SDL_Rect foot2{x + 9, y + 29, 4, 2};
+    SDL_RenderFillRect(ren, &foot1);
+    SDL_RenderFillRect(ren, &foot2);
+}
+
+void Game::drawTechPipes(int wx, int wy)
+{
+    int x = sx(static_cast<float>(wx)) + 8;
+    int y = sy(static_cast<float>(wy));
+    if (x < -32 || x > VIEW_W + 32) return;
+
+    // Две вертикальные трубы с тёмным контуром.
+    SDL_SetRenderDrawColor(ren, 24, 28, 28, 255);
+    SDL_Rect o1{x - 7, y - 1, 7, 56};
+    SDL_Rect o2{x + 1, y - 1, 6, 56};
+    SDL_RenderFillRect(ren, &o1);
+    SDL_RenderFillRect(ren, &o2);
+    SDL_SetRenderDrawColor(ren, 72, 82, 78, 255);
+    SDL_Rect p1{x - 6, y, 5, 54};
+    SDL_Rect p2{x + 2, y, 4, 54};
+    SDL_RenderFillRect(ren, &p1);
+    SDL_RenderFillRect(ren, &p2);
+    SDL_SetRenderDrawColor(ren, 118, 130, 124, 255);
+    SDL_Rect h1{x - 6, y, 1, 54};
+    SDL_Rect h2{x + 2, y, 1, 54};
+    SDL_RenderFillRect(ren, &h1);
+    SDL_RenderFillRect(ren, &h2);
+
+    // Нижний сварной перегиб.
+    SDL_SetRenderDrawColor(ren, 24, 28, 28, 255);
+    SDL_Rect joint{x - 7, y + 52, 15, 4};
+    SDL_RenderFillRect(ren, &joint);
+    SDL_SetRenderDrawColor(ren, 84, 94, 90, 255);
+    SDL_Rect jointIn{x - 6, y + 53, 13, 2};
+    SDL_RenderFillRect(ren, &jointIn);
+
+    // Хомуты крепления.
+    SDL_SetRenderDrawColor(ren, 44, 48, 48, 255);
+    for (int i = 0; i < 3; ++i) {
+        SDL_Rect clamp{x - 7, y + 8 + i * 18, 14, 2};
+        SDL_RenderFillRect(ren, &clamp);
+    }
+
+    // Красный вентиль-маховик.
+    fillCircle(x - 3, y + 22, 5, SDL_Color{112, 38, 30, 255});
+    fillCircle(x - 3, y + 22, 4, SDL_Color{170, 58, 46, 255});
+    fillCircle(x - 3, y + 22, 2, SDL_Color{48, 24, 20, 255});
+    SDL_SetRenderDrawColor(ren, 210, 96, 72, 255);
+    for (int i = 0; i < 4; ++i) {
+        float a = i * 1.5707963f + 0.7853982f;
+        SDL_RenderDrawLine(ren, x - 3, y + 22,
+                           x - 3 + static_cast<int>(std::cos(a) * 4.0f),
+                           y + 22 + static_cast<int>(std::sin(a) * 4.0f));
+    }
+}
+
+void Game::drawTechVent(int wx, int wy)
+{
+    int x = sx(static_cast<float>(wx)) + 1;
+    int y = sy(static_cast<float>(wy));
+    if (x < -24 || x > VIEW_W + 24) return;
+
+    SDL_SetRenderDrawColor(ren, 36, 40, 42, 255);
+    SDL_Rect frame{x, y, 14, 12};
+    SDL_RenderFillRect(ren, &frame);
+    SDL_SetRenderDrawColor(ren, 82, 88, 90, 255);
+    SDL_Rect inner{x + 1, y + 1, 12, 10};
+    SDL_RenderFillRect(ren, &inner);
+    SDL_SetRenderDrawColor(ren, 24, 28, 29, 255);
+    for (int i = 0; i < 4; ++i) {
+        SDL_Rect slot{x + 2, y + 2 + i * 2, 10, 1};
+        SDL_RenderFillRect(ren, &slot);
+    }
+    SDL_SetRenderDrawColor(ren, 124, 130, 132, 255);
+    SDL_Rect b1{x + 1, y + 1, 1, 1};
+    SDL_Rect b2{x + 12, y + 1, 1, 1};
+    SDL_Rect b3{x + 1, y + 10, 1, 1};
+    SDL_Rect b4{x + 12, y + 10, 1, 1};
+    SDL_RenderFillRect(ren, &b1);
+    SDL_RenderFillRect(ren, &b2);
+    SDL_RenderFillRect(ren, &b3);
+    SDL_RenderFillRect(ren, &b4);
+}
+
+void Game::drawTechBox(int wx, int wy)
+{
+    int x = sx(static_cast<float>(wx));
+    int y = sy(static_cast<float>(wy));
+    if (x < -32 || x > VIEW_W + 32) return;
+
+    // Серый электрощит.
+    SDL_SetRenderDrawColor(ren, 50, 54, 56, 255);
+    SDL_Rect body{x, y, 18, 24};
+    SDL_RenderFillRect(ren, &body);
+    SDL_SetRenderDrawColor(ren, 88, 94, 96, 255);
+    SDL_Rect lid{x + 2, y + 2, 14, 20};
+    SDL_RenderFillRect(ren, &lid);
+    SDL_SetRenderDrawColor(ren, 32, 36, 38, 255);
+    SDL_Rect seam{x + 8, y + 3, 1, 18};
+    SDL_RenderFillRect(ren, &seam);
+    SDL_SetRenderDrawColor(ren, 152, 158, 160, 255);
+    SDL_Rect handle{x + 12, y + 11, 2, 5};
+    SDL_RenderFillRect(ren, &handle);
+
+    // Жёлтый предупреждающий треугольник.
+    fillTriangle(x + 4, y + 17, x + 8, y + 10, x + 12, y + 17,
+                 SDL_Color{214, 168, 40, 255});
+    SDL_SetRenderDrawColor(ren, 30, 26, 22, 255);
+    SDL_Rect mark{x + 7, y + 13, 2, 2};
+    SDL_RenderFillRect(ren, &mark);
+
+    // Гофрированный кабель вниз.
+    SDL_SetRenderDrawColor(ren, 38, 42, 42, 255);
+    for (int i = 0; i < 4; ++i) {
+        SDL_Rect rib{x + 6, y + 24 + i * 2, 6, 1};
+        SDL_RenderFillRect(ren, &rib);
+    }
+}
+
+void Game::drawTechSign(int wx, int wy)
+{
+    int x = sx(static_cast<float>(wx));
+    int y = sy(static_cast<float>(wy));
+    if (x < -32 || x > VIEW_W + 32) return;
+
+    SDL_SetRenderDrawColor(ren, 26, 28, 28, 255);
+    SDL_Rect frame{x, y, 26, 13};
+    SDL_RenderFillRect(ren, &frame);
+    SDL_SetRenderDrawColor(ren, 198, 158, 44, 255);
+    SDL_Rect plate{x + 1, y + 1, 24, 11};
+    SDL_RenderFillRect(ren, &plate);
+
+    // Чёрные косые полосы по краям.
+    SDL_SetRenderDrawColor(ren, 30, 28, 24, 255);
+    for (int i = 0; i < 3; ++i) {
+        SDL_Rect l{x + 2 + i * 2, y + 1, 1, 11};
+        SDL_Rect r{x + 23 - i * 2, y + 1, 1, 11};
+        SDL_RenderFillRect(ren, &l);
+        SDL_RenderFillRect(ren, &r);
+    }
+
+    pixfont::drawText(ren, x + 9, y + 3, "ТЕХ", 1,
+                      SDL_Color{34, 30, 24, 255}, false);
+}
+
+void Game::drawCableCoil(int wx, int wy)
+{
+    int x = sx(static_cast<float>(wx)) + 8;
+    int y = sy(static_cast<float>(wy)) + 8;
+    if (x < -24 || x > VIEW_W + 24) return;
+
+    // Крюк на стене.
+    SDL_SetRenderDrawColor(ren, 84, 88, 90, 255);
+    SDL_Rect hook{x - 1, y - 9, 2, 6};
+    SDL_RenderFillRect(ren, &hook);
+
+    // Моток кабеля.
+    fillCircle(x, y, 7, SDL_Color{46, 44, 42, 255});
+    fillCircle(x, y, 5, SDL_Color{98, 76, 46, 255});
+    fillCircle(x, y, 2, SDL_Color{28, 28, 28, 255});
+    SDL_SetRenderDrawColor(ren, 138, 108, 64, 210);
+    SDL_RenderDrawLine(ren, x - 6, y - 2, x + 6, y - 2);
+    SDL_RenderDrawLine(ren, x - 7, y + 2, x + 7, y + 2);
+
+    // Свисающий конец.
+    SDL_SetRenderDrawColor(ren, 68, 52, 34, 255);
+    SDL_RenderDrawLine(ren, x + 4, y + 5, x + 8, y + 13);
 }
 
 // ---------------------------------------------------------------------------
@@ -5979,6 +6489,16 @@ void Game::runSmoke()
             slideShown ? 1 : 0, slideSecond ? 1 : 0, levelIndex, state,
             slidesOk ? 1 : 0);
 
+    // Технический этаж: аварийные лампы и стремянки на своих местах.
+    int techLamps = 0, techLadders = 0;
+    for (const Decor& d : decor) {
+        if (d.type == DEC_EMERGENCY) ++techLamps;
+        if (d.type == DEC_STEPLADDER) ++techLadders;
+    }
+    bool techDecorOk = (techLamps >= 4 && techLadders >= 2);
+    SDL_Log("techdecor: lamps=%d ladders=%d ok=%d", techLamps, techLadders,
+            techDecorOk ? 1 : 0);
+
     if (level2) {
         monsters.clear();
         for (CupItem& c : cups) {
@@ -6185,7 +6705,8 @@ void Game::runSmoke()
               lookForward && reloadOk && reloadWaitHeld && reloadStarted &&
               reloadProportional && reloadLocked &&
               reloadDone && dying && respawned && gameOver && slidesOk &&
-              level2 && level2Stairs && won && menuOk && devSecretOk;
+              level2 && level2Stairs && techDecorOk && won && menuOk &&
+              devSecretOk;
     SDL_Log("smoke %s", ok ? "OK" : "FAIL");
 }
 
