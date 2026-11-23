@@ -805,6 +805,7 @@ struct Game {
     void drawTechSign(int wx, int wy);
     void drawCableCoil(int wx, int wy);
     void drawDoor();
+    void drawElevatorDoor();
     void drawSecretDoor();
     void drawCups();
     void drawJewelry();
@@ -3552,6 +3553,11 @@ void Game::drawCableCoil(int wx, int wy)
 void Game::drawDoor()
 {
     if (door.w <= 0) return;
+    // На техническом этаже выход — грузовой лифт.
+    if (levelIndex == 1) {
+        drawElevatorDoor();
+        return;
+    }
     int x = sx(door.x);
     int y = sy(door.y);
     int w = static_cast<int>(door.w);
@@ -3623,6 +3629,117 @@ void Game::drawDoor()
     SDL_RenderFillRect(ren, &sign);
     SDL_SetRenderDrawColor(ren, 42, 28, 18, 255);
     SDL_RenderDrawLine(ren, x + w / 2 - 7, y - 8, x + w / 2 + 7, y - 8);
+}
+
+void Game::drawElevatorDoor()
+{
+    int x = sx(door.x);
+    int y = sy(door.y);
+    int w = static_cast<int>(door.w);
+    int h = static_cast<int>(door.h);
+    if (x < -80 || x > VIEW_W + 40) return;
+
+    bool unlocked = (cupsGot >= static_cast<int>(cups.size()));
+
+    // Тёмный стальной портал.
+    SDL_SetRenderDrawColor(ren, 28, 32, 34, 255);
+    SDL_Rect frame{x - 5, y - 6, w + 10, h + 12};
+    SDL_RenderFillRect(ren, &frame);
+    SDL_SetRenderDrawColor(ren, 70, 78, 80, 255);
+    SDL_Rect frameIn{x - 3, y - 4, w + 6, h + 8};
+    SDL_RenderFillRect(ren, &frameIn);
+    SDL_SetRenderDrawColor(ren, 20, 22, 24, 255);
+    SDL_Rect inner{x - 1, y - 2, w + 2, h + 4};
+    SDL_RenderFillRect(ren, &inner);
+
+    // Табло над створками: три лампы, загораются по кубкам.
+    SDL_SetRenderDrawColor(ren, 24, 28, 30, 255);
+    SDL_Rect header{x, y, w, 12};
+    SDL_RenderFillRect(ren, &header);
+    SDL_SetRenderDrawColor(ren, 48, 54, 56, 255);
+    SDL_Rect headerIn{x + 1, y + 1, w - 2, 10};
+    SDL_RenderFillRect(ren, &headerIn);
+    for (int i = 0; i < 3; ++i) {
+        int lx = x + w / 2 - 8 + i * 6;
+        bool lit = i < cupsGot;
+        SDL_SetRenderDrawColor(ren, lit ? 255 : 46,
+                               lit ? 214 : 52, lit ? 90 : 54, 255);
+        SDL_Rect lamp{lx, y + 4, 3, 3};
+        SDL_RenderFillRect(ren, &lamp);
+        SDL_SetRenderDrawColor(ren, 18, 20, 22, 255);
+        SDL_Rect socket{lx - 1, y + 3, 5, 1};
+        SDL_RenderFillRect(ren, &socket);
+    }
+
+    // Шахта за створками.
+    int top = y + 14;
+    int doorH = h - 18;
+    SDL_SetRenderDrawColor(ren, 10, 9, 10, 255);
+    SDL_Rect shaft{x + 2, top, w - 4, doorH};
+    SDL_RenderFillRect(ren, &shaft);
+
+    // Раздвижные створки: когда кубки собраны, щель между ними открыта.
+    int gap = unlocked ? 4 : 0;
+    int half = w / 2;
+    int leafW = half - 3 - gap;
+    if (unlocked) {
+        SDL_SetRenderDrawColor(ren, 214, 170, 96, 70);
+        SDL_Rect warm{x + half - 4, top + 2, 8, doorH - 4};
+        SDL_RenderFillRect(ren, &warm);
+    }
+    SDL_Rect leaves[2] = {
+        SDL_Rect{x + 2, top, leafW, doorH},
+        SDL_Rect{x + half + 1 + gap, top, leafW, doorH}
+    };
+    for (int i = 0; i < 2; ++i) {
+        const SDL_Rect& d = leaves[i];
+        SDL_SetRenderDrawColor(ren, 92, 100, 102, 255);
+        SDL_RenderFillRect(ren, &d);
+        SDL_SetRenderDrawColor(ren, 126, 134, 136, 255);
+        SDL_Rect hi{d.x + 2, d.y, 2, d.h};
+        SDL_RenderFillRect(ren, &hi);
+        SDL_SetRenderDrawColor(ren, 62, 68, 70, 255);
+        SDL_Rect lo{d.x + d.w - 2, d.y, 2, d.h};
+        SDL_RenderFillRect(ren, &lo);
+        SDL_SetRenderDrawColor(ren, 48, 54, 56, 255);
+        SDL_Rect topEdge{d.x, d.y, d.w, 2};
+        SDL_Rect botEdge{d.x, d.y + d.h - 2, d.w, 2};
+        SDL_RenderFillRect(ren, &topEdge);
+        SDL_RenderFillRect(ren, &botEdge);
+    }
+
+    // Пульт вызова справа от портала.
+    SDL_SetRenderDrawColor(ren, 30, 34, 36, 255);
+    SDL_Rect panel{x + w + 3, y + h / 2 - 8, 9, 16};
+    SDL_RenderFillRect(ren, &panel);
+    SDL_SetRenderDrawColor(ren, 62, 68, 70, 255);
+    SDL_Rect panelIn{x + w + 4, y + h / 2 - 7, 7, 14};
+    SDL_RenderFillRect(ren, &panelIn);
+    SDL_Color callGlow = unlocked ? SDL_Color{255, 214, 96, 255}
+                                  : SDL_Color{110, 70, 48, 255};
+    fillCircle(x + w + 7, y + h / 2 - 2, 2, callGlow);
+    fillCircle(x + w + 7, y + h / 2 + 4, 2,
+               SDL_Color{70, 76, 78, 255});
+
+    // Табличка «ЛИФТ».
+    SDL_SetRenderDrawColor(ren, 26, 30, 32, 255);
+    SDL_Rect sign{x + w / 2 - 16, y - 16, 32, 11};
+    SDL_RenderFillRect(ren, &sign);
+    SDL_SetRenderDrawColor(ren, 180, 144, 56, 255);
+    SDL_Rect signIn{x + w / 2 - 15, y - 15, 30, 9};
+    SDL_RenderFillRect(ren, &signIn);
+    pixfont::drawTextCentered(ren, x + w / 2, y - 14, "ЛИФТ", 1,
+                              SDL_Color{38, 32, 24, 255}, false);
+
+    if (unlocked) {
+        float pulse = 0.5f + 0.5f * std::sin(timeSec * 3.2f);
+        addLight(door.x + door.w * 0.5f, door.y + door.h * 0.5f,
+                 96.0f, SDL_Color{255, 210, 120, 255}, 60.0f + 45.0f * pulse);
+        SDL_SetRenderDrawColor(ren, 255, 226, 150,
+                               static_cast<Uint8>(90 + pulse * 100));
+        SDL_Rect glowLine{x + 3, top, w - 6, 1};
+        SDL_RenderFillRect(ren, &glowLine);
+    }
 }
 
 void Game::drawSecretDoor()
@@ -5631,6 +5748,22 @@ void Game::makeScenarios()
     introTimer = 20.0f;
     render();
     screenshot("shot_doberman.bmp");
+    SDL_RenderPresent(ren);
+
+    // 6c — выход со второго уровня: дверь-лифт с собранными кубками
+    resetWorld(1);
+    state = ST_PLAY;
+    for (CupItem& c : cups) c.taken = true;
+    cupsGot = static_cast<int>(cups.size());
+    player.x = 150 * 16.0f + 3.0f;
+    player.y = 32 * 16.0f - PLAYER_H;
+    player.facing = 1;
+    player.vx = player.vy = 0;
+    player.grounded = true;
+    snapCamera();
+    introTimer = 20.0f;
+    render();
+    screenshot("shot_elevator.bmp");
     SDL_RenderPresent(ren);
 
     // 7 — победа
