@@ -66,7 +66,8 @@ enum GameState {
     ST_SETTINGS = 5, ST_SLIDE = 6, ST_LEVEL_SELECT = 7
 };
 enum DeathCause {
-    DEATH_SPIDER = 0, DEATH_BAT = 1, DEATH_BULLET = 2, DEATH_DOBERMAN = 3
+    DEATH_SPIDER = 0, DEATH_BAT = 1, DEATH_BULLET = 2, DEATH_DOBERMAN = 3,
+    DEATH_FALL = 4
 };
 
 // ---------------------------------------------------------------------------
@@ -781,6 +782,7 @@ struct Game {
 
     void drawWallpaper();
     void drawTechnicalWallpaper();
+    void drawLobbyWallpaper();
     void drawTiles();
     void drawBrick(int x, int y, int tx, int ty);
     void drawFloorTile(int x, int y, int tx, int ty);
@@ -960,6 +962,7 @@ void Game::resetWorld(int index)
     // украшения: девять случайных тайлов на твёрдом полу, по три каждого вида
     jewelry.clear();
     std::vector<RectF> spots;
+    std::vector<RectF> raised;
     for (int ty = 1; ty < lvl.h; ++ty) {
         for (int tx = 0; tx < lvl.w; ++tx) {
             if (lvl.at(tx, ty) != '.') continue;
@@ -977,25 +980,48 @@ void Game::resetWorld(int index)
                 if (std::abs(c.tx - tx) <= 2 && std::abs(c.ty - ty) <= 2)
                     nearCup = true;
             if (nearCup) continue;
-            bool nearOther = false;
-            for (const RectF& s : spots)
-                if (std::fabs(s.x - jx) < 48.0f &&
-                    std::fabs(s.y - jy) < 28.0f) nearOther = true;
-            if (nearOther) continue;
-            spots.push_back(RectF{jx, jy, 11.0f, 10.0f});
+            auto nearAny = [&](const std::vector<RectF>& v) {
+                for (const RectF& s : v)
+                    if (std::fabs(s.x - jx) < 48.0f &&
+                        std::fabs(s.y - jy) < 28.0f) return true;
+                return false;
+            };
+            if (nearAny(spots) || nearAny(raised)) continue;
+            RectF spot{jx, jy, 11.0f, 10.0f};
+            // В вестибюле часть наград лежит на верхних платформах: за ними
+            // нужно прыгать, поэтому такие места выбираем в первую очередь.
+            if (levelIndex == 2 && ty <= lvl.h - 8)
+                raised.push_back(spot);
+            else
+                spots.push_back(spot);
         }
     }
-    for (size_t i = spots.size(); i > 1; --i) {
-        size_t j = static_cast<size_t>(rndf(rngState, 0.0f, static_cast<float>(i)));
-        if (j >= i) j = i - 1;
-        std::swap(spots[i - 1], spots[j]);
-    }
-    int jewelCount = std::min<int>(9, static_cast<int>(spots.size()));
-    for (int i = 0; i < jewelCount; ++i) {
+    auto shuffleSpots = [&](std::vector<RectF>& v) {
+        for (size_t i = v.size(); i > 1; --i) {
+            size_t j = static_cast<size_t>(rndf(rngState, 0.0f,
+                                                static_cast<float>(i)));
+            if (j >= i) j = i - 1;
+            std::swap(v[i - 1], v[j]);
+        }
+    };
+    shuffleSpots(spots);
+    shuffleSpots(raised);
+
+    std::vector<RectF> chosen;
+    size_t ri = 0;
+    if (levelIndex == 2)
+        for (; ri < raised.size() && chosen.size() < 3; ++ri)
+            chosen.push_back(raised[ri]);
+    for (size_t i = 0; i < spots.size() && chosen.size() < 9; ++i)
+        chosen.push_back(spots[i]);
+    for (; ri < raised.size() && chosen.size() < 9; ++ri)
+        chosen.push_back(raised[ri]);
+
+    for (size_t i = 0; i < chosen.size(); ++i) {
         Jewel jw;
-        jw.x = spots[i].x;
-        jw.y = spots[i].y;
-        jw.type = i % 3;
+        jw.x = chosen[i].x;
+        jw.y = chosen[i].y;
+        jw.type = static_cast<int>(i % 3);
         jw.phase = rndf(rngState, 0.0f, 6.28f);
         jewelry.push_back(jw);
     }
@@ -1035,7 +1061,7 @@ void Game::resetWorld(int index)
         for (auto& p : uShelf) D(p[0], p[1], DEC_SHELF);
         D(22, 5, DEC_MIRROR);
         D(66, 5, DEC_MIRROR);
-    } else {
+    } else if (levelIndex == 1) {
         // Второй уровень — технический этаж: вместо картин и канделябров
         // развешиваем аварийные лампы, вентиляцию, щиты, трубы и стремянки.
         auto free = [&](int tx, int ty) {
@@ -1063,6 +1089,26 @@ void Game::resetWorld(int index)
                 if (tx % 15 == 7 && free(tx, floor - 2) && free(tx, floor - 1))
                     D(tx, floor - 2, DEC_STEPLADDER);
             }
+        }
+    } else {
+        // Третий уровень — парадный вестибюль: люстры, портреты, бра,
+        // зеркала и напольные часы.
+        auto free = [&](int tx, int ty) {
+            return lvl.at(tx, ty) == '.';
+        };
+        for (int tx = 3; tx < lvl.w - 3; ++tx) {
+            if (tx % 13 == 5 && free(tx, 1))
+                D(tx, 1, DEC_CHANDELIER);
+            if (tx % 9 == 3 && free(tx, 8))
+                D(tx, 8, DEC_SCONCE);
+            if (tx % 15 == 7 && free(tx, 7))
+                D(tx, 7, DEC_PAINTING);
+            if (tx % 27 == 16 && free(tx, 5))
+                D(tx, 5, DEC_WINDOW);
+            if (tx % 34 == 11 && free(tx, 4))
+                D(tx, 4, DEC_MIRROR);
+            if (tx % 41 == 23 && free(tx, 9))
+                D(tx, 9, DEC_CLOCK);
         }
     }
 
@@ -1167,15 +1213,22 @@ void Game::resetWorld(int index)
         rugs.push_back(RectF{6 * 16.f, 128.f, 7 * 16.f, 5.f});
         rugs.push_back(RectF{56 * 16.f, 128.f, 7 * 16.f, 5.f});
         rugs.push_back(RectF{115 * 16.f, 128.f, 8 * 16.f, 5.f});
-    } else {
+    } else if (levelIndex == 1) {
         const int groundRugs[] = {4, 44, 76, 124};
         for (int x : groundRugs) rugs.push_back(RectF{x * 16.f, 240.f, 9 * 16.f, 6.f});
         const int upperRugs[] = {6, 36, 80, 120};
         for (int x : upperRugs) rugs.push_back(RectF{x * 16.f, 128.f, 8 * 16.f, 5.f});
+    } else {
+        // Вестибюль: одна длинная ковровая дорожка, разбитая пропастями.
+        const int runX[] = {4, 24, 58, 105, 150, 205};
+        const int runW[] = {14, 16, 20, 15, 20, 19};
+        const float floorTop = (lvl.h - 6) * TILE;
+        for (int i = 0; i < 6; ++i)
+            rugs.push_back(RectF{runX[i] * 16.f, floorTop, runW[i] * 16.f, 6.f});
     }
 
     // ковры: этажи повторяются со сдвигом 272 px, подвал — только напольные
-    {
+    if (levelIndex != 2) {
         const size_t n = rugs.size();
         for (size_t i = 0; i < n; ++i)
             rugs.push_back(RectF{rugs[i].x, rugs[i].y + 272.0f, rugs[i].w, rugs[i].h});
@@ -1498,6 +1551,12 @@ void Game::update(float dt, const Input& in)
     updateBullets(dt);
     checkPickups();
     checkDoor(dt);
+
+    // В вестибюле под полом — тёмная шахта: упал в пропасть, значит погиб.
+    if (levelIndex == 2 && player.y > (lvl.h - 4) * TILE) {
+        player.invuln = 0;
+        killPlayer(DEATH_FALL);
+    }
     updateCamera(dt);
 
     // DEV: вход в секретную дверь открывает выбор уровня.
@@ -2091,10 +2150,14 @@ void Game::updateCamera(float dt)
     float targetX = player.x + player.w * 0.5f + look - VIEW_W * 0.5f;
     targetX = clampf(targetX, 0.0f, std::max(0.0f, static_cast<float>(lvl.w * TILE - VIEW_W)));
 
-    // Вертикальная камера ездит по всей высоте здания.
+    // Вертикальная камера ездит по всей высоте здания. В одноэтажном
+    // вестибюле она почти стоит на месте: кадр держит потолок и пол, а под
+    // полом остаётся полоска тёмной шахты для пропастей.
     float lookYOff = player.lookY * 24.0f + clampf(player.vy * 0.10f, -22.0f, 22.0f);
     float targetY = player.y + player.h * 0.5f + lookYOff - VIEW_H * 0.5f;
-    targetY = clampf(targetY, 0.0f, std::max(0.0f, static_cast<float>(lvl.h * TILE - VIEW_H)));
+    float maxCamY = std::max(0.0f, static_cast<float>(lvl.h * TILE - VIEW_H));
+    if (levelIndex == 2) maxCamY = 16.0f;
+    targetY = clampf(targetY, 0.0f, maxCamY);
 
     camX += (targetX - camX) * std::min(1.0f, dt * 9.0f);
     camY += (targetY - camY) * std::min(1.0f, dt * 8.0f);
@@ -2106,6 +2169,7 @@ void Game::snapCamera()
                   std::max(0.0f, static_cast<float>(lvl.w * TILE - VIEW_W)));
     camY = clampf(player.y + player.h * 0.5f - VIEW_H * 0.5f, 0.0f,
                   std::max(0.0f, static_cast<float>(lvl.h * TILE - VIEW_H)));
+    if (levelIndex == 2) camY = 16.0f;
 }
 
 void Game::checkPickups()
@@ -2293,7 +2357,8 @@ void Game::killPlayer(int cause)
     shake = 0.8f;
     hurtFlash = 0.9f;
     SDL_Color blood = (cause == DEATH_DOBERMAN) ? SDL_Color{130, 26, 32, 255}
-                                              : SDL_Color{210, 70, 70, 255};
+                    : (cause == DEATH_FALL)     ? SDL_Color{120, 108, 96, 255}
+                                                : SDL_Color{210, 70, 70, 255};
     spawnSparkle(player.x + player.w * 0.5f, player.y + player.h * 0.5f, 22, blood);
     bullets.clear();
 }
@@ -2524,6 +2589,11 @@ void Game::drawWallpaper()
         drawTechnicalWallpaper();
         return;
     }
+    // Третий — вестибюль с мрамором и бронзой.
+    if (levelIndex == 2) {
+        drawLobbyWallpaper();
+        return;
+    }
 
     int tx0 = std::max(0, static_cast<int>(camX / TILE) - 1);
     int tx1 = std::min(lvl.w - 1, static_cast<int>((camX + VIEW_W) / TILE) + 1);
@@ -2662,6 +2732,130 @@ void Game::drawTechnicalWallpaper()
     }
 }
 
+void Game::drawLobbyWallpaper()
+{
+    // Вестибюль «ДАЙМОНДА»: светлый мрамор, бронзовые пилястры, дубовый
+    // низ стены и ковровая дорожка. Пол основного зала — на шестом ряду
+    // снизу; всё, что ниже, уходит в тёмную шахту пропастей.
+    const float floorY = (lvl.h - 6) * TILE;
+    const float wainTop = floorY - 74.0f;
+
+    int tx0 = std::max(0, static_cast<int>(camX / TILE) - 1);
+    int tx1 = std::min(lvl.w - 1, static_cast<int>((camX + VIEW_W) / TILE) + 1);
+
+    // Тёмная шахта под полом: толща перекрытия, опоры и тусклый низ.
+    fillW(camX - 8.0f, floorY, static_cast<float>(VIEW_W) + 16.0f,
+          lvl.h * TILE - floorY, SDL_Color{14, 12, 16, 255});
+    fillW(camX, floorY, static_cast<float>(VIEW_W), 6.0f,
+          SDL_Color{56, 48, 40, 255});
+    fillW(camX, floorY, static_cast<float>(VIEW_W), 1.0f,
+          SDL_Color{118, 104, 84, 200});
+    for (int tx = tx0; tx <= tx1; ++tx) {
+        float x = tx * 16.0f;
+        uint32_t h = hash2(tx, 31);
+        // Кирпичная кладка дальней стены шахты.
+        if (tx % 4 == 0) {
+            fillW(x, floorY + 6.0f, 1.0f, lvl.h * TILE - floorY - 6.0f,
+                  SDL_Color{8, 7, 9, 255});
+            fillW(x + 1.0f, floorY + 6.0f, 1.0f, lvl.h * TILE - floorY - 6.0f,
+                  SDL_Color{38, 32, 32, 90});
+        }
+        if ((h >> 4) % 7 == 0)
+            fillW(x + 3.0f, floorY + 12.0f + static_cast<float>(h % 36), 2.0f,
+                  12.0f, SDL_Color{30, 26, 28, 120});
+        // Опорные пилоны, уходящие вниз.
+        if (tx % 6 == 1) {
+            fillW(x + 2.0f, floorY + 6.0f, 12.0f,
+                  lvl.h * TILE - floorY - 6.0f, SDL_Color{22, 19, 22, 255});
+            fillW(x + 3.0f, floorY + 6.0f, 2.0f,
+                  lvl.h * TILE - floorY - 6.0f, SDL_Color{42, 36, 36, 255});
+            fillW(x + 11.0f, floorY + 6.0f, 2.0f,
+                  lvl.h * TILE - floorY - 6.0f, SDL_Color{10, 9, 11, 255});
+        }
+    }
+    for (int i = 0; i < 4; ++i)
+        fillW(camX, floorY + 26.0f + i * 14.0f, static_cast<float>(VIEW_W),
+              12.0f, SDL_Color{34, 28, 28, static_cast<Uint8>(80 - i * 16)});
+    fillW(camX + 40.0f, floorY + 74.0f, static_cast<float>(VIEW_W) - 80.0f,
+          40.0f, SDL_Color{52, 40, 30, 45});
+
+    // Потолок с кессонами и золочёным карнизом.
+    fillW(camX, 0.0f, static_cast<float>(VIEW_W), 20.0f,
+          SDL_Color{38, 30, 28, 255});
+    for (int tx = tx0; tx <= tx1; ++tx) {
+        if (tx % 2 != 0) continue;
+        float x = tx * 16.0f;
+        fillW(x + 2.0f, 3.0f, 12.0f, 11.0f, SDL_Color{26, 20, 20, 255});
+        fillW(x + 3.0f, 4.0f, 10.0f, 1.0f, SDL_Color{58, 46, 38, 255});
+    }
+    fillW(camX, 20.0f, static_cast<float>(VIEW_W), 4.0f,
+          SDL_Color{172, 140, 76, 255});
+    fillW(camX, 24.0f, static_cast<float>(VIEW_W), 2.0f,
+          SDL_Color{98, 78, 44, 255});
+    fillW(camX, 26.0f, static_cast<float>(VIEW_W), 2.0f,
+          SDL_Color{52, 40, 32, 255});
+
+    // Стена по колоннам: мраморные панели, прожилки и дубовый низ.
+    for (int tx = tx0; tx <= tx1; ++tx) {
+        float x = tx * 16.0f;
+        uint32_t h = hash2(tx / 2, 5);
+        int v = static_cast<int>(h % 10);
+
+        SDL_Color marble{static_cast<Uint8>(184 + v),
+                         static_cast<Uint8>(174 + v),
+                         static_cast<Uint8>(156 + v), 255};
+        fillW(x, 28.0f, 16.0f, wainTop - 28.0f, marble);
+
+        // Прожилки мрамора.
+        if ((h >> 5) % 4 == 0) {
+            fillW(x + 3.0f, 46.0f + static_cast<float>(h % 70), 1.0f,
+                  16.0f + static_cast<float>(h % 22),
+                  SDL_Color{158, 146, 126, 70});
+            fillW(x + 9.0f, 108.0f + static_cast<float>(h % 34), 1.0f,
+                  12.0f, SDL_Color{166, 154, 134, 55});
+        }
+        // Тёплый блик сверху панели.
+        fillW(x, 28.0f, 16.0f, 2.0f, SDL_Color{216, 206, 186, 70});
+
+        // Рамка панели каждые 5 тайлов.
+        if (tx % 5 == 0) {
+            fillW(x, 28.0f, 1.0f, wainTop - 28.0f,
+                  SDL_Color{146, 132, 110, 120});
+            fillW(x + 15.0f, 28.0f, 1.0f, wainTop - 28.0f,
+                  SDL_Color{96, 84, 70, 90});
+        }
+
+        // Дубовая обшивка снизу, с филёнкой и золотым поясом.
+        fillW(x, wainTop - 3.0f, 16.0f, 3.0f, SDL_Color{172, 140, 76, 255});
+        fillW(x, wainTop, 16.0f, floorY - wainTop,
+              SDL_Color{64, 43, 32, 255});
+        fillW(x, wainTop, 16.0f, 1.0f, SDL_Color{96, 68, 46, 255});
+        if (tx % 3 == 1)
+            fillW(x + 3.0f, wainTop + 12.0f, 10.0f, floorY - wainTop - 20.0f,
+                  SDL_Color{52, 35, 27, 255});
+        fillW(x, floorY - 2.0f, 16.0f, 1.0f, SDL_Color{34, 23, 19, 255});
+
+        // Бронзовая пилястра с капителью каждые 9 тайлов.
+        if (tx % 9 == 3) {
+            fillW(x + 1.0f, 26.0f, 14.0f, floorY - 26.0f,
+                  SDL_Color{74, 54, 38, 255});
+            fillW(x + 3.0f, 26.0f, 3.0f, floorY - 26.0f,
+                  SDL_Color{108, 82, 54, 255});
+            fillW(x + 10.0f, 26.0f, 3.0f, floorY - 26.0f,
+                  SDL_Color{52, 38, 28, 255});
+            fillW(x, 22.0f, 16.0f, 6.0f, SDL_Color{150, 118, 62, 255});
+            fillW(x + 1.0f, 28.0f, 14.0f, 3.0f, SDL_Color{124, 96, 52, 255});
+            fillW(x, floorY - 12.0f, 16.0f, 5.0f,
+                  SDL_Color{132, 102, 56, 255});
+        }
+    }
+
+    // Мягкий свет у пола и лёгкая пыль в воздухе.
+    for (int i = 0; i < 4; ++i)
+        fillW(camX, floorY - 26.0f + i * 6.0f, static_cast<float>(VIEW_W),
+              6.0f, SDL_Color{255, 220, 160, static_cast<Uint8>(6 + i * 4)});
+}
+
 // ---------------------------------------------------------------------------
 //  Тайлы
 // ---------------------------------------------------------------------------
@@ -2708,6 +2902,29 @@ void Game::drawBrick(int x, int y, int tx, int ty)
         return;
     }
 
+    if (levelIndex == 2) {
+        // Вестибюль: светлые мраморные блоки с тонкими швами.
+        uint32_t bh = hash2(tx, ty);
+        int bv = static_cast<int>(bh % 8);
+        SDL_Color bbase{static_cast<Uint8>(152 + bv),
+                        static_cast<Uint8>(144 + bv),
+                        static_cast<Uint8>(126 + bv), 255};
+        SDL_SetRenderDrawColor(ren, bbase.r, bbase.g, bbase.b, 255);
+        SDL_Rect br{x, y, 16, 16};
+        SDL_RenderFillRect(ren, &br);
+        SDL_SetRenderDrawColor(ren, 118, 108, 92, 255);
+        SDL_RenderDrawLine(ren, x, y + 15, x + 15, y + 15);
+        SDL_RenderDrawLine(ren, x + 15, y, x + 15, y + 15);
+        if ((bh >> 3) % 3 == 0) {
+            SDL_SetRenderDrawColor(ren, 132, 122, 104, 200);
+            SDL_RenderDrawLine(ren, x + 2, y + 4 + static_cast<int>(bh % 6),
+                               x + 10, y + 9 + static_cast<int>(bh % 4));
+        }
+        SDL_SetRenderDrawColor(ren, 196, 188, 168, 90);
+        SDL_RenderDrawLine(ren, x + 1, y + 1, x + 14, y + 1);
+        return;
+    }
+
     uint32_t h = hash2(tx, ty);
     int v = static_cast<int>(h % 12);
     SDL_Color base{static_cast<Uint8>(58 + v), static_cast<Uint8>(39 + v / 2),
@@ -2747,6 +2964,26 @@ void Game::drawFloorTile(int x, int y, int tx, int ty)
         SDL_SetRenderDrawColor(ren, 22, 26, 28, 160);
         SDL_Rect fbottom{x, y + 13, 16, 3};
         SDL_RenderFillRect(ren, &fbottom);
+        return;
+    }
+
+    if (levelIndex == 2) {
+        // Вестибюль: полированный мрамор в шахматку.
+        bool darkTile = ((tx / 2 + ty) % 2 == 0);
+        SDL_Color ftile = darkTile ? SDL_Color{76, 68, 60, 255}
+                                   : SDL_Color{112, 102, 88, 255};
+        SDL_SetRenderDrawColor(ren, ftile.r, ftile.g, ftile.b, 255);
+        SDL_Rect fr{x, y, 16, 16};
+        SDL_RenderFillRect(ren, &fr);
+        SDL_SetRenderDrawColor(ren, 46, 40, 36, 255);
+        SDL_RenderDrawLine(ren, x, y + 15, x + 15, y + 15);
+        SDL_RenderDrawLine(ren, x + 15, y, x + 15, y + 15);
+        SDL_SetRenderDrawColor(ren, 148, 138, 120, 90);
+        SDL_RenderDrawLine(ren, x + 1, y + 1, x + 14, y + 1);
+        if ((hash2(tx, ty) >> 4) % 4 == 0) {
+            SDL_SetRenderDrawColor(ren, 94, 86, 74, 140);
+            SDL_RenderDrawLine(ren, x + 3, y + 4, x + 8, y + 10);
+        }
         return;
     }
 
@@ -2801,6 +3038,39 @@ void Game::drawTableTile(int x, int y, int tx, int ty)
             SDL_Rect rivet{x + 3 + i * 9, y + 11, 1, 1};
             SDL_RenderFillRect(ren, &rivet);
         }
+        return;
+    }
+
+    if (levelIndex == 2) {
+        // Вестибюль: стойка ресепшена из тёмного дуба с латунной кромкой.
+        SDL_SetRenderDrawColor(ren, 62, 40, 28, 255);
+        SDL_Rect cr{x, y, 16, 16};
+        SDL_RenderFillRect(ren, &cr);
+        if (lvl.at(tx, ty - 1) != 't') {
+            SDL_SetRenderDrawColor(ren, 128, 96, 54, 255);
+            SDL_Rect ctop{x, y, 16, 5};
+            SDL_RenderFillRect(ren, &ctop);
+            SDL_SetRenderDrawColor(ren, 178, 142, 78, 255);
+            SDL_Rect cline{x, y, 16, 1};
+            SDL_RenderFillRect(ren, &cline);
+            SDL_SetRenderDrawColor(ren, 84, 58, 36, 255);
+            SDL_Rect cedg{x, y + 5, 16, 1};
+            SDL_RenderFillRect(ren, &cedg);
+        }
+        if (lvl.at(tx, ty + 1) != 't') {
+            SDL_SetRenderDrawColor(ren, 40, 26, 20, 255);
+            SDL_Rect cshadow{x, y + 13, 16, 3};
+            SDL_RenderFillRect(ren, &cshadow);
+            SDL_SetRenderDrawColor(ren, 48, 32, 22, 255);
+            SDL_Rect clegL{x + 2, y + 6, 3, 10};
+            SDL_Rect clegR{x + 11, y + 6, 3, 10};
+            SDL_RenderFillRect(ren, &clegL);
+            SDL_RenderFillRect(ren, &clegR);
+        }
+        SDL_SetRenderDrawColor(ren, 148, 116, 64, 120);
+        SDL_Rect crib{x + 3, y + 9, 10, 1};
+        SDL_RenderFillRect(ren, &crib);
+        fillCircle(x + 8, y + 8, 1, SDL_Color{190, 150, 84, 255});
         return;
     }
 
@@ -2860,6 +3130,36 @@ void Game::drawStepTile(int x, int y, int tx, int ty)
         return;
     }
 
+    if (levelIndex == 2) {
+        // Вестибюль: мраморный карниз-платформа с золотой кромкой.
+        SDL_SetRenderDrawColor(ren, 44, 38, 34, 255);
+        SDL_Rect sbase{x, y + 7, 16, 3};
+        SDL_RenderFillRect(ren, &sbase);
+        SDL_SetRenderDrawColor(ren, 138, 128, 112, 255);
+        SDL_Rect sboard{x, y, 16, 7};
+        SDL_RenderFillRect(ren, &sboard);
+        SDL_SetRenderDrawColor(ren, 188, 178, 158, 255);
+        SDL_Rect stop{x, y, 16, 2};
+        SDL_RenderFillRect(ren, &stop);
+        SDL_SetRenderDrawColor(ren, 170, 134, 66, 255);
+        SDL_Rect strim{x, y + 3, 16, 1};
+        SDL_RenderFillRect(ren, &strim);
+        SDL_SetRenderDrawColor(ren, 106, 98, 84, 255);
+        SDL_Rect svein{x + 3, y + 5, 9, 1};
+        SDL_RenderFillRect(ren, &svein);
+        if (lvl.at(tx - 1, ty) != 'S') {
+            SDL_SetRenderDrawColor(ren, 78, 70, 60, 255);
+            SDL_Rect scap{x, y, 2, 10};
+            SDL_RenderFillRect(ren, &scap);
+        }
+        if (lvl.at(tx + 1, ty) != 'S') {
+            SDL_SetRenderDrawColor(ren, 78, 70, 60, 255);
+            SDL_Rect scap{x + 14, y, 2, 10};
+            SDL_RenderFillRect(ren, &scap);
+        }
+        return;
+    }
+
     // Широкая деревянная ступень: доска у верхней кромки тайла.
     SDL_SetRenderDrawColor(ren, 92, 58, 34, 255);
     SDL_Rect board{x, y, 16, 7};
@@ -2909,6 +3209,24 @@ void Game::drawLadder(int x, int y)
         return;
     }
 
+    if (levelIndex == 2) {
+        // Вестибюль: латунная лестница.
+        SDL_SetRenderDrawColor(ren, 142, 112, 58, 255);
+        SDL_Rect railL{x + 4, y, 2, 16};
+        SDL_Rect railR{x + 11, y, 2, 16};
+        SDL_RenderFillRect(ren, &railL);
+        SDL_RenderFillRect(ren, &railR);
+        SDL_SetRenderDrawColor(ren, 186, 152, 82, 255);
+        SDL_Rect rung1{x + 4, y + 3, 9, 2};
+        SDL_Rect rung2{x + 4, y + 10, 9, 2};
+        SDL_RenderFillRect(ren, &rung1);
+        SDL_RenderFillRect(ren, &rung2);
+        SDL_SetRenderDrawColor(ren, 84, 62, 32, 140);
+        SDL_Rect shadeL{x + 12, y, 1, 16};
+        SDL_RenderFillRect(ren, &shadeL);
+        return;
+    }
+
     SDL_SetRenderDrawColor(ren, 132, 92, 50, 255);
     SDL_Rect railL{x + 4, y, 2, 16};
     SDL_Rect railR{x + 11, y, 2, 16};
@@ -2929,6 +3247,33 @@ void Game::drawPitTile(int x, int y, int tx, int ty)
     bool edgeL = (tx > 0 && lvl.at(tx - 1, ty) == '=');
     bool edgeR = (tx + 1 < lvl.w && lvl.at(tx + 1, ty) == '=');
     if (!edgeL && !edgeR) return;
+
+    if (levelIndex == 2) {
+        // Мраморный пол вестибюля обрывается в тёмную шахту.
+        SDL_SetRenderDrawColor(ren, 24, 20, 22, 255);
+        SDL_Rect top{x, y, 16, 5};
+        SDL_RenderFillRect(ren, &top);
+        SDL_SetRenderDrawColor(ren, 15, 13, 15, 255);
+        SDL_Rect mid{x, y + 5, 16, 5};
+        SDL_RenderFillRect(ren, &mid);
+        SDL_SetRenderDrawColor(ren, 7, 6, 8, 255);
+        SDL_Rect deep{x, y + 10, 16, 6};
+        SDL_RenderFillRect(ren, &deep);
+        SDL_SetRenderDrawColor(ren, 96, 88, 76, 255);
+        if (edgeL) {
+            SDL_Rect e{x, y, 3, 4};
+            SDL_Rect e2{x + 3, y + 1, 2, 2};
+            SDL_RenderFillRect(ren, &e);
+            SDL_RenderFillRect(ren, &e2);
+        }
+        if (edgeR) {
+            SDL_Rect e{x + 13, y, 3, 4};
+            SDL_Rect e2{x + 11, y + 1, 2, 2};
+            SDL_RenderFillRect(ren, &e);
+            SDL_RenderFillRect(ren, &e2);
+        }
+        return;
+    }
 
     // Провал в полу: тёмный колодец с обломанными краями.
     SDL_SetRenderDrawColor(ren, 20, 14, 18, 255);
@@ -4830,7 +5175,7 @@ void Game::drawLevelSelectScreen()
 
     for (int i = 0; i < LEVEL_COUNT; ++i) {
         bool sel = (i == levelSelectIndex);
-        int y = 104 + i * 40;
+        int y = 84 + i * 36;
 
         if (sel) {
             SDL_SetRenderDrawColor(ren, 30, 74, 88, 220);
@@ -4896,6 +5241,7 @@ void Game::drawDeathOverlay()
     const bool spider = (deathCause == DEATH_SPIDER);
     const bool bullet = (deathCause == DEATH_BULLET);
     const bool dog = (deathCause == DEATH_DOBERMAN);
+    const bool fall = (deathCause == DEATH_FALL);
     float t = deathTimer;
 
     SDL_SetRenderDrawColor(ren, 6, 3, 8, 170);
@@ -4910,6 +5256,7 @@ void Game::drawDeathOverlay()
     SDL_Color edge = spider ? SDL_Color{178, 86, 140, 255}
                             : bullet ? SDL_Color{236, 196, 96, 255}
                             : dog ? SDL_Color{196, 52, 52, 255}
+                            : fall ? SDL_Color{132, 118, 104, 255}
                                   : SDL_Color{168, 112, 62, 255};
     SDL_SetRenderDrawColor(ren, edge.r, edge.g, edge.b, 255);
     SDL_RenderDrawRect(ren, &panel);
@@ -5125,6 +5472,29 @@ void Game::drawDeathOverlay()
         // рука Коляна дёрнулась к лицу
         limb(px + 10, py + 62, px + 5, py + 42, 6, skinShade);
         box(px + 1, py + 37, 8, 6, skin);
+    } else if (fall) {
+        // Падение в шахту: Колян кувыркается в темноте, мимо летят полосы.
+        float u = clampf(t / 1.20f, 0.0f, 1.0f);
+        int cx = panel.x + 50;
+        int cy = panel.y + 16 + static_cast<int>(u * 66.0f);
+        int spin = static_cast<int>(u * 14.0f);
+
+        SDL_SetRenderDrawColor(ren, 112, 98, 86, 120);
+        for (int i = 0; i < 4; ++i) {
+            int lx = cx - 20 + i * 13;
+            SDL_RenderDrawLine(ren, lx, panel.y + 4, lx, panel.y + 44);
+        }
+
+        box(cx - 9 + spin / 4, cy, 18, 24, SDL_Color{52, 84, 148, 255});
+        box(cx - 9 + spin / 4, cy, 18, 3, SDL_Color{190, 58, 62, 255});
+        box(cx - 7 + spin / 3, cy - 14, 14, 15, SDL_Color{238, 190, 150, 255});
+        box(cx - 9 + spin / 3, cy - 16, 18, 5, SDL_Color{62, 40, 30, 255});
+        box(cx - 5 + spin / 3, cy + 23, 4, 13, SDL_Color{40, 52, 74, 255});
+        box(cx + 1 + spin / 3, cy + 23, 4, 13, SDL_Color{40, 52, 74, 255});
+        if (t > 1.05f) {
+            box(cx - 12, cy + 36, 24, 3, SDL_Color{150, 44, 50, 220});
+            box(cx - 4, cy + 34, 8, 2, SDL_Color{182, 60, 62, 200});
+        }
     } else if (deathCause == DEATH_BAT) {
         // Смерть от братка с битой: удар сзади сносит Коляну голову.
         float u = clampf((t - 0.10f) / 0.85f, 0.0f, 1.0f);
@@ -5425,11 +5795,13 @@ void Game::drawGameOverScreen()
         (deathCause == DEATH_SPIDER)   ? "ПОСЛЕДНЯЯ ПРИЧИНА: ПАУК"
         : (deathCause == DEATH_BULLET) ? "ПОСЛЕДНЯЯ ПРИЧИНА: ПУЛЯ"
         : (deathCause == DEATH_DOBERMAN) ? "ПОСЛЕДНЯЯ ПРИЧИНА: ДОБЕРМАН"
+        : (deathCause == DEATH_FALL)   ? "ПОСЛЕДНЯЯ ПРИЧИНА: ПАДЕНИЕ В ПРОПАСТЬ"
                                         : "ПОСЛЕДНЯЯ ПРИЧИНА: БРАТОК С БИТОЙ";
     SDL_Color causeCol =
         (deathCause == DEATH_SPIDER)   ? SDL_Color{196, 110, 166, 255}
         : (deathCause == DEATH_BULLET) ? SDL_Color{236, 196, 96, 255}
         : (deathCause == DEATH_DOBERMAN) ? SDL_Color{226, 90, 76, 255}
+        : (deathCause == DEATH_FALL)   ? SDL_Color{150, 136, 120, 255}
                                          : SDL_Color{206, 154, 96, 255};
     pixfont::drawTextCentered(ren, VIEW_W / 2, 138, causeText, 1, causeCol);
 
@@ -5764,6 +6136,21 @@ void Game::makeScenarios()
     introTimer = 20.0f;
     render();
     screenshot("shot_elevator.bmp");
+    SDL_RenderPresent(ren);
+
+    // 6d — третий уровень: мраморный вестибюль, платформы и пропасть
+    resetWorld(2);
+    state = ST_PLAY;
+    player.x = 36 * 16.0f + 3.0f;
+    player.y = (lvl.h - 6) * TILE - PLAYER_H;
+    player.facing = 1;
+    player.vx = player.vy = 0;
+    player.grounded = true;
+    takeCup(43, 7);
+    snapCamera();
+    introTimer = 20.0f;
+    render();
+    screenshot("shot_level3.bmp");
     SDL_RenderPresent(ren);
 
     // 7 — победа
@@ -6646,6 +7033,77 @@ void Game::runSmoke()
         player.facing = 1;
         for (int i = 0; i < 200; ++i) update(1.0f / 120.0f, Input{});
     }
+
+    // Второй лифт ведёт в длинный одноэтажный вестибюль.
+    bool level3 = (levelIndex == 2 && state == ST_PLAY);
+    int bats3 = 0, dogs3 = 0, pistols3 = 0, pistolsNearDoor = 0;
+    for (const Monster& m : monsters) {
+        if (m.type == 1) ++bats3;
+        if (m.type == 3) ++dogs3;
+        if (m.type == 2) {
+            ++pistols3;
+            if (m.b.x > door.x - 200.0f) ++pistolsNearDoor;
+        }
+    }
+    int highPlats = 0, pitTiles = 0, highCups = 0, highJewels = 0;
+    for (int ty = 0; ty < lvl.h; ++ty)
+        for (int tx = 0; tx < lvl.w; ++tx) {
+            char c = lvl.at(tx, ty);
+            if (c == 'S' && ty < lvl.h - 6) ++highPlats;
+            if (c == '.' && ty == lvl.h - 6) ++pitTiles;
+        }
+    for (const CupItem& c : cups)
+        if (c.ty <= lvl.h - 8) ++highCups;
+    for (const Jewel& jw : jewelry)
+        if (jw.y < (lvl.h - 7) * TILE) ++highJewels;
+    bool singleFloor = (lvl.h == 22);
+    bool lobbyOk = singleFloor && lvl.w >= 220 && highPlats >= 12 &&
+                   pitTiles >= 12 && bats3 >= 3 && dogs3 >= 2 &&
+                   pistols3 == 1 && pistolsNearDoor == 1;
+    bool lobbyBonuses = (highCups >= 2 && highJewels >= 2);
+    SDL_Log("lobby: h=%d w=%d plats=%d pits=%d bat=%d dog=%d gun=%d/%d "
+            "highcup=%d highjewel=%d ok=%d",
+            lvl.h, lvl.w, highPlats, pitTiles, bats3, dogs3, pistols3,
+            pistolsNearDoor, highCups, highJewels,
+            (lobbyOk && lobbyBonuses) ? 1 : 0);
+
+    // Пропасть: падение отнимает жизнь и возвращает на чекпоинт.
+    bool fallDies = false, fallRespawns = false;
+    if (level3) {
+        lives = START_LIVES;
+        int livesBefore = lives;
+        player.x = 50 * 16.0f + 3.0f;
+        player.y = (lvl.h - 8) * 16.0f;
+        player.vx = player.vy = 0;
+        player.grounded = false;
+        player.invuln = 0;
+        for (int i = 0; i < 120; ++i) update(1.0f / 120.0f, Input{});
+        fallDies = (state == ST_DYING && deathCause == DEATH_FALL &&
+                    lives == livesBefore - 1);
+        for (int i = 0; i < 400; ++i) update(1.0f / 120.0f, Input{});
+        fallRespawns = (state == ST_PLAY &&
+                        std::fabs(player.x - checkpoint.x) < 1.0f);
+        SDL_Log("fall: dies=%d respawn=%d cause=%d lives=%d ok=%d",
+                fallDies ? 1 : 0, fallRespawns ? 1 : 0, deathCause, lives,
+                (fallDies && fallRespawns) ? 1 : 0);
+    }
+
+    // Кубки вестибюля собраны — дверь на другом конце зала открывается.
+    if (level3) {
+        monsters.clear();
+        for (CupItem& c : cups) {
+            c.taken = true;
+            lvl.rows[c.ty][c.tx] = '.';
+        }
+        cupsGot = static_cast<int>(cups.size());
+        player.x = door.x + 8.0f;
+        player.y = door.y + door.h - PLAYER_H;
+        player.vx = player.vy = 0;
+        player.grounded = true;
+        player.facing = 1;
+        player.invuln = 2.0f;
+        for (int i = 0; i < 200; ++i) update(1.0f / 120.0f, Input{});
+    }
     bool won = (state == ST_WIN);
     SDL_Log("win: state=%d kills=%d", state, kills);
 
@@ -6838,7 +7296,8 @@ void Game::runSmoke()
               lookForward && reloadOk && reloadWaitHeld && reloadStarted &&
               reloadProportional && reloadLocked &&
               reloadDone && dying && respawned && gameOver && slidesOk &&
-              level2 && level2Stairs && techDecorOk && won && menuOk &&
+              level2 && level2Stairs && techDecorOk && level3 && lobbyOk &&
+              lobbyBonuses && fallDies && fallRespawns && won && menuOk &&
               devSecretOk;
     SDL_Log("smoke %s", ok ? "OK" : "FAIL");
 }
