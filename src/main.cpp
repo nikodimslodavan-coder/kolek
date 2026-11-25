@@ -8,6 +8,7 @@
 #include <SDL.h>
 
 #include <algorithm>
+#include <clocale>
 #include <cmath>
 #include <cstdint>
 #include <fstream>
@@ -7577,6 +7578,15 @@ void Game::runSmoke()
 // ---------------------------------------------------------------------------
 int main(int argc, char** argv)
 {
+#if defined(__linux__) && !defined(__ANDROID__)
+    // SDL/X11 использует LC_CTYPE при установке заголовка окна.
+    // Начальная локаль C неверно интерпретирует UTF-8 как однобайтовый текст.
+    // C.UTF-8 есть в Ubuntu и работает даже при запуске с LANG=C.
+    if (!std::setlocale(LC_CTYPE, "C.UTF-8")) {
+        std::setlocale(LC_CTYPE, "");
+    }
+#endif
+
     bool screens = false;
     bool smoke = false;
 #ifdef KOLEK_ANDROID
