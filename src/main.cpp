@@ -71,6 +71,8 @@ enum DeathCause {
     DEATH_FALL = 4
 };
 
+enum ExitAction { EXIT_NONE, EXIT_LEVEL, EXIT_GAME };
+
 // ---------------------------------------------------------------------------
 //  Мелкие структуры
 // ---------------------------------------------------------------------------
@@ -231,8 +233,9 @@ struct TouchControls {
         return (visibleMask & (1u << static_cast<unsigned>(b))) != 0;
     }
 
-    void setVisibleForState(int state)
+    void setVisibleForState(int state, bool confirmingExit = false)
     {
+        if (confirmingExit) state = ST_TITLE;
         uint32_t m = 0;
         auto add = [&](int b) { m |= 1u << static_cast<unsigned>(b); };
         switch (state) {
@@ -699,6 +702,8 @@ struct Game {
     int bindTarget = -1;          // действие, ждущее новую клавишу
     int bindSlot = 0;             // слот переназначаемой клавиши
     bool quitRequested = false;   // «Выход» в главном меню
+    ExitAction exitAction = EXIT_NONE;
+    bool exitAccepted = false;    // по умолчанию выбрана отмена
     bool persistControls = true;  // не трогать файл в служебных режимах
 
     // Слайды между уровнями.
@@ -745,6 +750,7 @@ struct Game {
     void loadControls();
     void saveControls() const;
     void update(float dt, const Input& in);
+    void requestExit(ExitAction action);
     void render();
 
     // --- геймплей -----------------------------------------------------------
@@ -836,6 +842,7 @@ struct Game {
     void drawLevelSelectScreen();
     void drawWinScreen();
     void drawGameOverScreen();
+    void drawExitConfirmation();
 
     // --- служебное ----------------------------------------------------------
     void screenshot(const char* path);
@@ -1412,8 +1419,41 @@ void Game::saveControls() const
 // ---------------------------------------------------------------------------
 //  Обновление
 // ---------------------------------------------------------------------------
+void Game::requestExit(ExitAction action)
+{
+    if (exitAction == action) return;
+    exitAction = action;
+    exitAccepted = false;
+}
+
 void Game::update(float dt, const Input& in)
 {
+    if (exitAction != EXIT_NONE) {
+        // Мир и все таймеры стоят, пока игрок принимает решение.
+        if (in.back) {
+            exitAction = EXIT_NONE;
+        } else {
+            if (in.menuUp || in.menuDown || in.menuLeft || in.menuRight)
+                exitAccepted = !exitAccepted;
+            if (in.confirm) {
+                if (exitAccepted) {
+                    if (exitAction == EXIT_GAME) {
+                        quitRequested = true;
+                    } else {
+                        state = ST_TITLE;
+                        menuIndex = 0;
+                        titleBlink = 0;
+                    }
+                }
+                exitAction = EXIT_NONE;
+            }
+        }
+        // Пробел подтверждения не должен превращаться в прыжок после отмены.
+        jumpEdge = false;
+        prevSpacePressed = in.spacePressed;
+        return;
+    }
+
     // Нажатие прыжка считаем один раз за реальное нажатие: главный цикл
     // переиспользует один Input для нескольких подшагов физики.
     jumpEdge = in.spacePressed && !prevSpacePressed;
@@ -1445,7 +1485,7 @@ void Game::update(float dt, const Input& in)
                 settingsSlot = 0;
                 bindTarget = -1;
             } else {
-                quitRequested = true;
+                requestExit(EXIT_GAME);
             }
         }
         return;
@@ -1520,8 +1560,7 @@ void Game::update(float dt, const Input& in)
     }
     if (state == ST_WIN || state == ST_GAMEOVER) {
         if (in.back) {
-            state = ST_TITLE;
-            menuIndex = 0;
+            requestExit(EXIT_LEVEL);
             return;
         }
         if (in.restart) startGame();
@@ -1529,17 +1568,14 @@ void Game::update(float dt, const Input& in)
     }
     if (state == ST_DYING) {
         if (in.back) {
-            state = ST_TITLE;
-            menuIndex = 0;
+            requestExit(EXIT_LEVEL);
             return;
         }
         updateDeath(dt);
         return;
     }
     if (in.back) {
-        state = ST_TITLE;
-        menuIndex = 0;
-        titleBlink = 0;
+        requestExit(EXIT_LEVEL);
         return;
     }
     if (DEV_SECRET_LEVELS && in.secretDoor)
@@ -2528,6 +2564,7 @@ void Game::render()
         SDL_RenderFillRect(ren, nullptr);
     }
 
+    if (exitAction != EXIT_NONE) drawExitConfirmation();
     drawTouchControls();
 }
 
@@ -4949,7 +4986,7 @@ void Game::drawHUD()
 void Game::drawTouchControls()
 {
     if (!touch.enabled) return;
-    touch.setVisibleForState(state);
+    touch.setVisibleForState(state, exitAction != EXIT_NONE);
 
     auto button = [&](int b, const char* label, int labelScale) {
         if (!touch.visible(b)) return;
@@ -4976,7 +5013,7 @@ void Game::drawTouchControls()
     };
 
     // В меню выстрел превращается в кнопку подтверждения.
-    bool inMenu = (state == ST_TITLE || state == ST_SETTINGS ||
+    bool inMenu = (exitAction != EXIT_NONE || state == ST_TITLE || state == ST_SETTINGS ||
                    state == ST_SLIDE || state == ST_WIN ||
                    state == ST_GAMEOVER);
     button(TB_UP, "↑", 2);
@@ -4987,6 +5024,38 @@ void Game::drawTouchControls()
     button(TB_SHOOT, inMenu ? "ОК" : "ОГОНЬ", inMenu ? 2 : 1);
     button(TB_BACK, "МЕНЮ", 1);
     button(TB_RESTART, "ЗАНОВО", 1);
+}
+
+void Game::drawExitConfirmation()
+{
+    SDL_SetRenderDrawColor(ren, 8, 5, 10, 210);
+    SDL_RenderFillRect(ren, nullptr);
+    SDL_Rect panel{72, 64, 336, 128};
+    SDL_SetRenderDrawColor(ren, 28, 21, 30, 255);
+    SDL_RenderFillRect(ren, &panel);
+    SDL_SetRenderDrawColor(ren, 214, 174, 92, 255);
+    SDL_RenderDrawRect(ren, &panel);
+    pixfont::drawTextCentered(ren, VIEW_W / 2, 80,
+        exitAction == EXIT_GAME ? "ВЫЙТИ ИЗ ИГРЫ?" : "ВЫЙТИ С УРОВНЯ?",
+        2, SDL_Color{255, 222, 130, 255});
+    pixfont::drawTextCentered(ren, VIEW_W / 2, 104,
+        exitAction == EXIT_GAME ? "ИГРА БУДЕТ ЗАКРЫТА" : "ПРОГРЕСС ИГРЫ БУДЕТ ПОТЕРЯН",
+        1, SDL_Color{212, 196, 170, 255});
+    const char* choices[] = {"НЕТ, ОСТАТЬСЯ", "ДА, ВЫЙТИ"};
+    for (int i = 0; i < 2; ++i) {
+        int y = 126 + i * 24;
+        bool selected = (i == (exitAccepted ? 1 : 0));
+        if (selected) {
+            SDL_Rect highlight{100, y - 4, 280, 21};
+            SDL_SetRenderDrawColor(ren, 70, 54, 28, 255);
+            SDL_RenderFillRect(ren, &highlight);
+        }
+        pixfont::drawTextCentered(ren, VIEW_W / 2, y, choices[i], 2,
+            selected ? SDL_Color{255, 232, 160, 255} : SDL_Color{196, 184, 162, 255});
+    }
+    pixfont::drawTextCentered(ren, VIEW_W / 2, 178,
+        touch.enabled ? "↑/↓ - ВЫБОР   ОК - ПОДТВЕРДИТЬ" : "↑/↓ - ВЫБОР   ENTER - ОК   ESC - НАЗАД",
+        1, SDL_Color{150, 140, 128, 255});
 }
 
 void Game::drawTitleScreen()
@@ -6037,6 +6106,12 @@ void Game::makeScenarios()
     screenshot("shot_title.bmp");
     SDL_RenderPresent(ren);
 
+    requestExit(EXIT_GAME);
+    render();
+    screenshot("shot_exit_game.bmp");
+    SDL_RenderPresent(ren);
+    exitAction = EXIT_NONE;
+
     // 0b — настройки управления
     resetWorld(0);
     state = ST_SETTINGS;
@@ -6054,6 +6129,12 @@ void Game::makeScenarios()
     render();
     screenshot("shot_start.bmp");
     SDL_RenderPresent(ren);
+
+    requestExit(EXIT_LEVEL);
+    render();
+    screenshot("shot_exit_level.bmp");
+    SDL_RenderPresent(ren);
+    exitAction = EXIT_NONE;
 
     // 1b — подвал: браток с пистолетом и пуля в полёте
     resetWorld(0);
@@ -7458,12 +7539,45 @@ void Game::runSmoke()
     bool settingsBack = (state == ST_TITLE && menuIndex == 1);
 
     state = ST_PLAY;
+    const float beforeExitX = player.x;
+    const float beforeExitY = player.y;
+    const float beforeExitTime = timeSec;
     {
         Input in;
         in.back = true;
         update(1.0f / 120.0f, in);
     }
-    bool escMenu = (state == ST_TITLE);
+    bool exitPrompt = (state == ST_PLAY && exitAction == EXIT_LEVEL && !exitAccepted);
+    {
+        Input in;
+        in.right = in.shootPressed = in.restart = true;
+        update(1.0f, in);
+    }
+    bool exitPaused = (state == ST_PLAY && player.x == beforeExitX &&
+                       player.y == beforeExitY && timeSec == beforeExitTime + 1.0f / 120.0f);
+    {
+        Input in;
+        in.confirm = true; // выбранное по умолчанию «Нет»
+        update(1.0f / 120.0f, in);
+    }
+    bool exitCancelled = (state == ST_PLAY && exitAction == EXIT_NONE);
+    requestExit(EXIT_LEVEL);
+    {
+        Input in;
+        in.back = true;
+        update(1.0f / 120.0f, in);
+    }
+    bool exitBack = (state == ST_PLAY && exitAction == EXIT_NONE);
+    requestExit(EXIT_LEVEL);
+    {
+        Input in;
+        in.menuDown = true;
+        update(1.0f / 120.0f, in);
+        in = Input{};
+        in.confirm = true;
+        update(1.0f / 120.0f, in);
+    }
+    bool escMenu = (state == ST_TITLE && exitAction == EXIT_NONE);
 
     // Esc в главном меню ничего не закрывает: игра остаётся открытой.
     {
@@ -7473,14 +7587,39 @@ void Game::runSmoke()
     }
     bool escNoQuit = (state == ST_TITLE && !quitRequested);
 
-    // Закрыть игру может только пункт «Выход».
+    // «Выход» открывает подтверждение, отмена оставляет игру открытой.
     menuIndex = 2;
     {
         Input in;
         in.confirm = true;
         update(1.0f / 120.0f, in);
     }
-    bool exitQuits = quitRequested;
+    bool quitPrompt = (!quitRequested && exitAction == EXIT_GAME && !exitAccepted);
+    {
+        Input in;
+        in.confirm = true;
+        update(1.0f / 120.0f, in);
+    }
+    bool quitCancelled = (!quitRequested && exitAction == EXIT_NONE && state == ST_TITLE);
+    // Тот же запрос используется для SDL_QUIT (крестик окна, Alt+F4).
+    requestExit(EXIT_GAME);
+    {
+        Input in;
+        in.back = true;
+        update(1.0f / 120.0f, in);
+    }
+    bool quitBack = (!quitRequested && exitAction == EXIT_NONE);
+    requestExit(EXIT_GAME);
+    {
+        Input in;
+        in.menuDown = true;
+        update(1.0f / 120.0f, in);
+        requestExit(EXIT_GAME); // повторный запрос не сбрасывает выбор
+        in = Input{};
+        in.confirm = true;
+        update(1.0f / 120.0f, in);
+    }
+    bool exitQuits = quitRequested && exitAction == EXIT_NONE;
     quitRequested = false;
     menuIndex = 0;
     controls.reset();
@@ -7514,7 +7653,11 @@ void Game::runSmoke()
 
     bool menuOk = menuStart && menuSettings && bindWaiting && menuRebind &&
                   bindWaiting2 && menuRebind2 && settingsBack && escMenu &&
-                  escNoQuit && exitQuits && moveAimOk;
+                  escNoQuit && exitQuits && moveAimOk && exitPrompt && exitPaused &&
+                  exitCancelled && exitBack && quitPrompt && quitCancelled && quitBack;
+    SDL_Log("exitconfirm: level=%d pause=%d cancel=%d back=%d quit=%d cancel=%d back=%d",
+            exitPrompt, exitPaused, exitCancelled, exitBack,
+            quitPrompt, quitCancelled, quitBack);
     SDL_Log("menu: start=%d settings=%d bind=%d/%d rebind=%d/%d "
             "back=%d esc=%d escnoquit=%d exit=%d moveaim=%d/%d/%d ok=%d",
             menuStart ? 1 : 0, menuSettings ? 1 : 0, bindWaiting ? 1 : 0,
@@ -7688,14 +7831,17 @@ int main(int argc, char** argv)
     while (running) {
         bool swallowMenu = false;
         bool backQueued = false;
-        game.touch.setVisibleForState(game.state);
+        game.touch.setVisibleForState(game.state, game.exitAction != EXIT_NONE);
         game.touch.beginFrame();
         int winW = 0, winH = 0;
         SDL_GetWindowSize(win, &winW, &winH);
 
         SDL_Event ev;
         while (SDL_PollEvent(&ev)) {
-            if (ev.type == SDL_QUIT) running = false;
+            if (ev.type == SDL_QUIT) {
+                game.requestExit(EXIT_GAME);
+                swallowMenu = true;
+            }
             // F11 — полный экран. Клавиша зарезервирована и не участвует
             // в переназначении управления.
             if (ev.type == SDL_KEYDOWN &&
@@ -7715,7 +7861,8 @@ int main(int argc, char** argv)
                 ev.key.keysym.scancode == SDL_SCANCODE_AC_BACK &&
                 !ev.key.repeat)
                 backQueued = true;
-            if (ev.type == SDL_KEYDOWN && game.bindTarget >= 0) {
+            if (ev.type == SDL_KEYDOWN && game.bindTarget >= 0 &&
+                game.exitAction == EXIT_NONE) {
                 SDL_Scancode sc = ev.key.keysym.scancode;
                 if (sc == SDL_SCANCODE_ESCAPE) {
                     game.bindTarget = -1;      // отмена переназначения
@@ -7730,7 +7877,8 @@ int main(int argc, char** argv)
         game.touch.endEvents();
         // На Android нет физической клавиатуры: переназначение можно
         // отменить экранной кнопкой «МЕНЮ».
-        if (game.bindTarget >= 0 && game.touch.pressed[TB_BACK]) {
+        if (game.bindTarget >= 0 && game.exitAction == EXIT_NONE &&
+            game.touch.pressed[TB_BACK]) {
             game.bindTarget = -1;
             swallowMenu = true;
         }
