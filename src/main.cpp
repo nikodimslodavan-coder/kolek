@@ -1915,11 +1915,13 @@ void Game::updateMonsters(float dt)
         bool holding = false;    // браток с пистолетом стоит и целится
 
         if (m.type == 2) {
-            // Браток с пистолетом: стреляет, когда Колян на одной с ним высоте.
-            bool inSight = state == ST_PLAY && player.invuln <= 0 &&
+            // Браток с пистолетом: стреляет, когда Колян на одной с ним высоте
+            // и стоит перед ним. Колян может зайти сзади — стрелок не
+            // разворачивается, а продолжает свой патруль.
+            bool aligned = state == ST_PLAY && player.invuln <= 0 &&
                            std::fabs(dyp) < 26.0f && std::fabs(dxp) < 300.0f;
-            if (inSight) {
-                dir = (dxp > 0.0f) ? 1 : -1;
+            bool inFront = aligned && ((dxp > 0.0f) == (b.facing > 0));
+            if (inFront) {
                 targetSpeed = 0.0f;
                 holding = true;
                 m.anim += dt * 2.0f;
@@ -1932,7 +1934,8 @@ void Game::updateMonsters(float dt)
                     k.vx = dir * BULLET_SPEED;
                     k.spin = rndf(rngState, 0.0f, 6.28f);
                     bullets.push_back(k);
-                    m.throwCd = rndf(rngState, 1.7f, 2.4f);
+                    // Не чаще одного выстрела в две секунды.
+                    m.throwCd = 2.0f;
                     m.anim += 1.8f;
                     spawnSparkle(k.x, k.y, 3, SDL_Color{255, 226, 150, 200});
                 }
@@ -6618,7 +6621,78 @@ void Game::runSmoke()
             bulletSlowerThanPlayer ? 1 : 0, bulletKill ? 1 : 0, deathCause);
     state = ST_PLAY;
 
-    // 2b2. Патруль братка с пистолетом — ровно на 10% медленнее пули.
+    // 2b2. Браток с пистолетом не разворачивается к Коляну на одной линии
+    //      и стреляет не чаще одного раза в две секунды.
+    monsters.clear();
+    bullets.clear();
+    player = Body{};
+    player.w = 10;
+    player.h = PLAYER_H;
+    player.x = 96 * 16.0f - 60.0f;
+    player.y = 482.0f;
+    player.facing = 1;
+    player.grounded = true;
+    player.invuln = 99.0f;
+    snapCamera();
+    {
+        Monster m;
+        m.type = 2;
+        m.b.w = 14;
+        m.b.h = 26;
+        m.b.x = 96 * 16.0f;
+        m.b.y = 482.0f + 4.0f;
+        m.b.facing = 1;
+        m.hp = m.maxHp = 3;
+        m.homeX = m.b.x;
+        m.homeY = m.b.y;
+        m.throwCd = 0.0f;
+        monsters.push_back(m);
+    }
+    // Колян стоит позади стрелка на той же высоте: тот не должен
+    // развернуться в его сторону.
+    for (int i = 0; i < 90; ++i) update(1.0f / 120.0f, Input{});
+    bool pistolNoTurn = !monsters.empty() && monsters.front().b.facing == 1;
+    SDL_Log("pistolface: facing=%d ok=%d",
+            monsters.empty() ? 0 : monsters.front().b.facing,
+            pistolNoTurn ? 1 : 0);
+
+    // Теперь Колян перед стрелком: замеряем паузу между выстрелами.
+    // Колян стоит низко и неуязвим для пули, иначе смерть прервёт замер.
+    bullets.clear();
+    if (!monsters.empty()) {
+        player.x = monsters.front().b.x + 60.0f;
+        player.y = 510.0f;
+        player.h = 2.0f;
+        player.grounded = true;
+        player.invuln = 0.0f;
+        monsters.front().throwCd = 0.0f;
+    }
+    update(1.0f / 120.0f, Input{});
+    bool firstShot = !bullets.empty();
+    float firstCd = monsters.empty() ? 0.0f : monsters.front().throwCd;
+    bullets.clear();
+    bool earlyShot = false;
+    float prevCd = monsters.empty() ? 0.0f : monsters.front().throwCd;
+    for (int i = 0; i < 200; ++i) {   // 1.67 с — второй пули быть не должно
+        update(1.0f / 120.0f, Input{});
+        float cd = monsters.empty() ? 0.0f : monsters.front().throwCd;
+        if (cd > prevCd + 0.5f) earlyShot = true;
+        prevCd = cd;
+    }
+    bool onTimeShot = false;
+    for (int i = 0; i < 100; ++i) {   // ещё 0.83 с — здесь выстрел уже обязан быть
+        update(1.0f / 120.0f, Input{});
+        float cd = monsters.empty() ? 0.0f : monsters.front().throwCd;
+        if (cd > prevCd + 0.5f) onTimeShot = true;
+        prevCd = cd;
+    }
+    bool pistolRateOk = firstShot && std::fabs(firstCd - 2.0f) < 0.02f &&
+                        !earlyShot && onTimeShot;
+    SDL_Log("pistolrate: first=%d cd=%.2f early=%d ontime=%d ok=%d",
+            firstShot ? 1 : 0, firstCd, earlyShot ? 1 : 0,
+            onTimeShot ? 1 : 0, pistolRateOk ? 1 : 0);
+
+    // 2b3. Патруль братка с пистолетом — ровно на 10% медленнее пули.
     monsters.clear();
     bullets.clear();
     player = Body{};
@@ -7483,7 +7557,8 @@ void Game::runSmoke()
               oneJumpOnly && doubleJump && jumpReset &&
               spaceWhileHoldingW && shotOk && recoilOk &&
               tracerOk && bulletThrown && bulletSpeedOk && bulletKill &&
-              pistolPatrolOk && dogOnMap && dogLowHitbox && dogKill &&
+              pistolNoTurn && pistolRateOk && pistolPatrolOk && dogOnMap &&
+              dogLowHitbox && dogKill &&
               diagUpOk && diagDownOk && recoilUpOk && recoilDownOk &&
               noAirShot && lookUpOk && lookDownOk &&
               lookForward && reloadOk && reloadWaitHeld && reloadStarted &&
