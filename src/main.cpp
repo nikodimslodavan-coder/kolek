@@ -704,6 +704,7 @@ struct Game {
     std::vector<std::string> slideTexts;
     int slideIndex = 0;
     int slideNextLevel = -1;
+    bool slideWallScene = false;  // слайд-«фотография» стены с надписью
 
     // DEV: секретная дверь и экран выбора уровня (Ctrl+R).
     RectF secretDoor{};
@@ -830,6 +831,7 @@ struct Game {
     void drawTitleScreen();
     void drawSettingsScreen();
     void drawSlideScreen();
+    void drawSlideWall();
     void drawLevelSelectScreen();
     void drawWinScreen();
     void drawGameOverScreen();
@@ -1505,6 +1507,7 @@ void Game::update(float dt, const Input& in)
                 slideNextLevel = -1;
                 slideIndex = 0;
                 slideTexts.clear();
+                slideWallScene = false;
                 resetWorld(next);
                 spawnSparkle(player.x + player.w * 0.5f,
                              player.y + player.h * 0.5f, 26,
@@ -2255,11 +2258,19 @@ void Game::beginSlides(int nextLevel)
     slideTexts.clear();
     slideIndex = 0;
     slideNextLevel = nextLevel;
+    slideWallScene = false;
 
     // Между первым и вторым этажом — короткая сцена с Лёхой.
     if (levelIndex == 0 && nextLevel == 1) {
         slideTexts.push_back("КОЛЯН. ЛЁХА ТЕБЯ КИНУЛ");
         slideTexts.push_back("ЭТО СОМНИТЕЛЬНЫЕ АППАРТАМЕНТЫ, НАЙДИ ВЫХОД НАРУЖУ");
+    }
+
+    // После технического этажа — стена у лифта, на которой Лёха оставил
+    // свой след. Слайд рисуется как кадр с надписью, а не как текст.
+    if (levelIndex == 1 && nextLevel == 2) {
+        slideWallScene = true;
+        slideTexts.push_back("ЛЁХА БЫЛ ЗДЕСЬ");
     }
 
     if (slideTexts.empty()) {
@@ -5129,7 +5140,9 @@ void Game::drawSlideScreen()
     pixfont::drawTextCentered(ren, VIEW_W / 2, 34, "МЕЖДУ ЭТАЖАМИ", 1,
                               SDL_Color{196, 176, 148, 255});
 
-    if (slideIndex >= 0 && slideIndex < static_cast<int>(slideTexts.size())) {
+    if (slideWallScene) {
+        drawSlideWall();
+    } else if (slideIndex >= 0 && slideIndex < static_cast<int>(slideTexts.size())) {
         std::vector<std::string> lines =
             pixfont::wrapText(slideTexts[slideIndex], 32);
         int lineH = 22;
@@ -5153,6 +5166,167 @@ void Game::drawSlideScreen()
                                              : "ENTER - ДАЛЬШЕ", 1,
                                   SDL_Color{235, 210, 160, 255});
     }
+}
+
+void Game::drawSlideWall()
+{
+    // Кадр-«фотография»: бетонная стена у лифта, на которой Лёха оставил
+    // надпись баллончиком. Рисуем её вместо текста слайда.
+    const int px = 56;
+    const int py = 58;
+    const int pw = VIEW_W - 112;
+    const int ph = 146;
+    const int floorY = py + ph - 16;
+
+    // Бетон: вертикальные полосы и мелкие пятна.
+    for (int y = 0; y < ph; ++y) {
+        uint32_t h = hash2(px, py + y);
+        int v = 44 + static_cast<int>((h >> 4) % 9);
+        SDL_SetRenderDrawColor(ren, static_cast<Uint8>(v),
+                               static_cast<Uint8>(v + 1),
+                               static_cast<Uint8>(v + 1), 255);
+        SDL_Rect band{px, py + y, pw, 1};
+        SDL_RenderFillRect(ren, &band);
+    }
+    for (int bx = 0; bx < pw; bx += 46) {
+        SDL_SetRenderDrawColor(ren, 34, 35, 35, 255);
+        SDL_Rect seam{px + bx, py, 1, floorY - py};
+        SDL_RenderFillRect(ren, &seam);
+        SDL_SetRenderDrawColor(ren, 62, 64, 64, 90);
+        SDL_Rect seamHi{px + bx + 1, py, 1, floorY - py};
+        SDL_RenderFillRect(ren, &seamHi);
+        for (int by = py + 18; by < floorY; by += 34) {
+            uint32_t h = hash2(px + bx, by);
+            SDL_SetRenderDrawColor(ren, 30, 31, 31, 160);
+            SDL_Rect blot{px + bx + 3 + static_cast<int>(h % 20),
+                          by + static_cast<int>((h >> 5) % 12),
+                          6 + static_cast<int>((h >> 9) % 18), 2};
+            SDL_RenderFillRect(ren, &blot);
+            SDL_SetRenderDrawColor(ren, 88, 90, 88, 110);
+            SDL_Rect bolt{px + bx + 2, by, 2, 2};
+            SDL_RenderFillRect(ren, &bolt);
+        }
+    }
+    // Горизонтальные швы плит.
+    for (int by = py + 36; by < floorY; by += 38) {
+        SDL_SetRenderDrawColor(ren, 26, 27, 27, 255);
+        SDL_Rect seam{px, by, pw, 1};
+        SDL_RenderFillRect(ren, &seam);
+        SDL_SetRenderDrawColor(ren, 70, 72, 70, 70);
+        SDL_Rect seamLo{px, by + 1, pw, 1};
+        SDL_RenderFillRect(ren, &seamLo);
+    }
+
+    // Кабельный лоток под потолком кадра и свисающая петля.
+    SDL_SetRenderDrawColor(ren, 30, 31, 32, 255);
+    SDL_Rect tray{px, py + 2, pw, 5};
+    SDL_RenderFillRect(ren, &tray);
+    SDL_SetRenderDrawColor(ren, 58, 60, 60, 255);
+    SDL_Rect trayHi{px, py + 2, pw, 1};
+    SDL_RenderFillRect(ren, &trayHi);
+    SDL_SetRenderDrawColor(ren, 20, 20, 22, 255);
+    for (int i = 0; i < 3; ++i) {
+        SDL_Rect cable{px + 12 + i * 5, py + 7, 2, 8 + i * 3};
+        SDL_RenderFillRect(ren, &cable);
+    }
+    SDL_SetRenderDrawColor(ren, 22, 22, 24, 255);
+    SDL_RenderDrawLine(ren, px + 306, py + 7, px + 312, py + 16);
+    SDL_RenderDrawLine(ren, px + 312, py + 16, px + 320, py + 8);
+    SDL_RenderDrawLine(ren, px + 312, py + 16, px + 306, py + 30);
+
+    // Аварийная лампа в углу: мигает, как на техническом этаже.
+    const float blink = std::fmod(titleBlink, 2.7f);
+    const bool lit = blink < 2.10f;
+    if (lit) {
+        fillTriangle(px + 22, py + 12, px + 4, floorY, px + 46, floorY,
+                     SDL_Color{255, 196, 96, 16});
+        fillTriangle(px + 22, py + 12, px + 10, floorY - 22, px + 38,
+                     floorY - 22, SDL_Color{255, 214, 128, 12});
+    }
+    SDL_SetRenderDrawColor(ren, 26, 24, 22, 255);
+    SDL_Rect lampArm{px + 16, py + 9, 12, 2};
+    SDL_RenderFillRect(ren, &lampArm);
+    SDL_SetRenderDrawColor(ren, lit ? 255 : 132, lit ? 214 : 118,
+                           lit ? 132 : 74, 255);
+    SDL_Rect bulb{px + 19, py + 11, 8, 4};
+    SDL_RenderFillRect(ren, &bulb);
+    SDL_SetRenderDrawColor(ren, 46, 38, 30, 200);
+    SDL_Rect guard{px + 19, py + 9, 8, 1};
+    SDL_RenderFillRect(ren, &guard);
+
+    // Пол коридора с грязной лужицей.
+    SDL_SetRenderDrawColor(ren, 30, 29, 31, 255);
+    SDL_Rect floor{px, floorY, pw, ph - (floorY - py)};
+    SDL_RenderFillRect(ren, &floor);
+    SDL_SetRenderDrawColor(ren, 54, 52, 54, 255);
+    SDL_Rect floorEdge{px, floorY, pw, 1};
+    SDL_RenderFillRect(ren, &floorEdge);
+    SDL_SetRenderDrawColor(ren, 22, 22, 24, 255);
+    SDL_Rect puddle{px + 96, floorY + 5, 46, 4};
+    SDL_RenderFillRect(ren, &puddle);
+
+    // Сама надпись: два слоя, будто краска легла неровно.
+    const SDL_Color paint{208, 204, 190, 255};
+    const SDL_Color paintLo{98, 94, 88, 160};
+    const SDL_Color red{168, 54, 50, 230};
+    const std::string line1 = "ЛЁХА БЫЛ";
+    const std::string line2 = "ЗДЕСЬ";
+    int x1 = VIEW_W / 2 - pixfont::textWidth(line1, 3) / 2;
+    int x2 = VIEW_W / 2 - pixfont::textWidth(line2, 3) / 2;
+    int y1 = 96;
+    int y2 = 128;
+
+    // Тёмный подслой и светлая краска сверху; вокруг — редкие брызги.
+    pixfont::drawText(ren, x1 + 1, y1 + 1, line1, 3, paintLo, false);
+    pixfont::drawText(ren, x1 + 2, y2 + 1, line2, 3, paintLo, false);
+    pixfont::drawText(ren, x1, y1, line1, 3, paint, false);
+    pixfont::drawText(ren, x2, y2, line2, 3, paint, false);
+    // В шрифте 5x7 у «Ё» нет диакритики: дорисовываем две точки над второй
+    // буквой, чтобы на стене читалось именно «ЛЁХА».
+    {
+        int ex = x1 + 18;
+        SDL_SetRenderDrawColor(ren, paintLo.r, paintLo.g, paintLo.b, 180);
+        SDL_Rect s1{ex + 4, y1 - 4, 3, 2};
+        SDL_Rect s2{ex + 10, y1 - 4, 3, 2};
+        SDL_RenderFillRect(ren, &s1);
+        SDL_RenderFillRect(ren, &s2);
+        SDL_SetRenderDrawColor(ren, paint.r, paint.g, paint.b, 255);
+        SDL_Rect d1{ex + 4, y1 - 5, 3, 2};
+        SDL_Rect d2{ex + 10, y1 - 5, 3, 2};
+        SDL_RenderFillRect(ren, &d1);
+        SDL_RenderFillRect(ren, &d2);
+    }
+    SDL_SetRenderDrawColor(ren, paint.r, paint.g, paint.b, 170);
+    for (int i = 0; i < 22; ++i) {
+        uint32_t h = hash2(i * 13 + 5, 77);
+        int sx2 = x1 - 12 + static_cast<int>(h % (pixfont::textWidth(line1, 3) + 24));
+        int sy2 = y1 - 8 + static_cast<int>((h >> 8) % 62);
+        SDL_Rect speck{sx2, sy2, 1 + static_cast<int>((h >> 16) % 2), 1};
+        SDL_RenderFillRect(ren, &speck);
+    }
+
+    // Потёки краски под буквами.
+    auto drip = [&](int x, int top, int len) {
+        SDL_SetRenderDrawColor(ren, paint.r, paint.g, paint.b, 220);
+        SDL_Rect stream{x, top, 1, len};
+        SDL_RenderFillRect(ren, &stream);
+        SDL_SetRenderDrawColor(ren, paint.r, paint.g, paint.b, 140);
+        SDL_Rect drop{x - 1, top + len, 3, 1};
+        SDL_RenderFillRect(ren, &drop);
+    };
+    drip(x1 + 18, y1 + 21, 6);
+    drip(x1 + 62, y1 + 21, 9);
+    drip(x1 + 104, y1 + 21, 4);
+    drip(x2 + 12, y2 + 21, 8);
+    drip(x2 + 54, y2 + 21, 11);
+
+    // Красный росчерк и стрелка в сторону лифта.
+    SDL_SetRenderDrawColor(ren, red.r, red.g, red.b, 210);
+    SDL_Rect tagLine{x1 - 4, y2 + 30, pixfont::textWidth(line1, 3) + 14, 1};
+    SDL_RenderFillRect(ren, &tagLine);
+    SDL_RenderDrawLine(ren, px + 268, py + 108, px + 322, py + 108);
+    SDL_RenderDrawLine(ren, px + 322, py + 108, px + 312, py + 103);
+    SDL_RenderDrawLine(ren, px + 322, py + 108, px + 312, py + 113);
 }
 
 void Game::drawLevelSelectScreen()
@@ -6062,6 +6236,13 @@ void Game::makeScenarios()
     slideIndex = 1;
     render();
     screenshot("shot_slide2.bmp");
+    SDL_RenderPresent(ren);
+
+    // 5b2 — слайд после второго уровня: стена с надписью «ЛЁХА БЫЛ ЗДЕСЬ»
+    resetWorld(1);
+    beginSlides(2);
+    render();
+    screenshot("shot_slide3.bmp");
     SDL_RenderPresent(ren);
 
     // 5c — DEV: секретная дверь и экран выбора уровня
@@ -7034,6 +7215,18 @@ void Game::runSmoke()
         for (int i = 0; i < 200; ++i) update(1.0f / 120.0f, Input{});
     }
 
+    // Слайд после технического этажа: стена с надписью «ЛЁХА БЫЛ ЗДЕСЬ».
+    bool wallSlide = (state == ST_SLIDE && levelIndex == 1 && slideWallScene &&
+                      static_cast<int>(slideTexts.size()) == 1);
+    if (wallSlide) {
+        Input in;
+        in.confirm = true;
+        update(1.0f / 120.0f, in);
+    }
+    SDL_Log("slide3: shown=%d wall=%d level=%d state=%d ok=%d",
+            wallSlide ? 1 : 0, wallSlide ? 1 : 0, levelIndex, state,
+            (wallSlide && levelIndex == 2 && state == ST_PLAY) ? 1 : 0);
+
     // Второй лифт ведёт в длинный одноэтажный вестибюль.
     bool level3 = (levelIndex == 2 && state == ST_PLAY);
     int bats3 = 0, dogs3 = 0, pistols3 = 0, pistolsNearDoor = 0;
@@ -7296,9 +7489,9 @@ void Game::runSmoke()
               lookForward && reloadOk && reloadWaitHeld && reloadStarted &&
               reloadProportional && reloadLocked &&
               reloadDone && dying && respawned && gameOver && slidesOk &&
-              level2 && level2Stairs && techDecorOk && level3 && lobbyOk &&
-              lobbyBonuses && fallDies && fallRespawns && won && menuOk &&
-              devSecretOk;
+              level2 && level2Stairs && techDecorOk && wallSlide && level3 &&
+              lobbyOk && lobbyBonuses && fallDies && fallRespawns && won &&
+              menuOk && devSecretOk;
     SDL_Log("smoke %s", ok ? "OK" : "FAIL");
 }
 
