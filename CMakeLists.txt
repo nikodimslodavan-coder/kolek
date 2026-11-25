@@ -5,6 +5,30 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+# Единый список модулей для настольной и Android-сборки.
+set(KOLEK_SOURCES
+    src/main.cpp
+    src/game/world.cpp
+    src/game/update.cpp
+    src/game/player.cpp
+    src/game/monsters.cpp
+    src/game/effects.cpp
+    src/game/progression.cpp
+    src/input/controls.cpp
+    src/input/bindings.cpp
+    src/input/input_mapper.cpp
+    src/platform/application.cpp
+    src/platform/settings.cpp
+    src/rendering/renderer.cpp
+    src/rendering/background.cpp
+    src/rendering/decor.cpp
+    src/rendering/items.cpp
+    src/rendering/actors.cpp
+    src/rendering/ui.cpp
+    src/diagnostics/screenshots.cpp
+    src/diagnostics/smoke.cpp
+)
+
 # ---------------------------------------------------------------------------
 #  Android: SDL2 собирается из исходников вместе с игрой.
 #  Сборкой управляет Gradle-проект из каталога android/.
@@ -36,7 +60,7 @@ if(ANDROID)
     endif()
 
     # SDLActivity ищет libmain.so и символ SDL_main.
-    add_library(main SHARED src/main.cpp)
+    add_library(main SHARED ${KOLEK_SOURCES})
     target_include_directories(main PRIVATE src)
     target_compile_definitions(main PRIVATE KOLEK_ANDROID=1)
     target_link_libraries(main PRIVATE SDL2::SDL2)
@@ -53,7 +77,7 @@ if (NOT SDL2_FOUND)
     pkg_check_modules(SDL2 REQUIRED IMPORTED_TARGET sdl2)
 endif()
 
-add_executable(mansion src/main.cpp)
+add_executable(mansion ${KOLEK_SOURCES})
 target_include_directories(mansion PRIVATE src)
 
 if (TARGET SDL2::SDL2)
@@ -74,6 +98,17 @@ if (MSVC)
     target_compile_options(mansion PRIVATE /utf-8 /W4)
 else()
     target_compile_options(mansion PRIVATE -Wall -Wextra)
+endif()
+
+include(CTest)
+if(BUILD_TESTING)
+    add_test(NAME game_smoke COMMAND mansion --smoke)
+    set_tests_properties(game_smoke PROPERTIES
+        ENVIRONMENT "SDL_VIDEODRIVER=dummy"
+        PASS_REGULAR_EXPRESSION "smoke OK"
+        FAIL_REGULAR_EXPRESSION "smoke FAIL"
+        TIMEOUT 30
+    )
 endif()
 
 # Подложить SDL2.dll рядом с exe (Windows/MinGW)

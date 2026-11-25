@@ -1,5 +1,5 @@
 @echo off
-setlocal
+setlocal EnableDelayedExpansion
 cd /d "%~dp0"
 
 where g++ >nul 2>nul
@@ -25,7 +25,9 @@ if "%SDLFLAGS%"=="" (
 rem -mwindows прячет консоль; убираем его, чтобы видеть ошибки при запуске
 set SDLFLAGS=%SDLFLAGS:-mwindows=%
 
-g++ -std=c++17 -O2 -Wall -Wextra -Isrc src\main.cpp -o mansion.exe %SDLFLAGS%
+set SOURCES=
+for /r src %%f in (*.cpp) do set SOURCES=!SOURCES! "%%f"
+g++ -std=c++17 -O2 -Wall -Wextra -Isrc !SOURCES! -o mansion.exe %SDLFLAGS%
 if errorlevel 1 (
     echo.
     echo [ERROR] Build failed.
