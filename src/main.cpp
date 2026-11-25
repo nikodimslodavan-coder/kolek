@@ -1468,11 +1468,14 @@ void Game::update(float dt, const Input& in)
     hurtFlash = std::max(0.0f, hurtFlash - dt * 2.4f);
 
     if (state == ST_TITLE) {
+        if (in.back) {
+            requestExit(EXIT_GAME);
+            return;
+        }
         if (in.menuUp)
             menuIndex = (menuIndex + 2) % 3;
         if (in.menuDown)
             menuIndex = (menuIndex + 1) % 3;
-        // Esc в главном меню ничего не делает: игру закрывает только «Выход».
         if (in.confirm) {
             if (menuIndex == 0) {
                 startGame();
@@ -7579,13 +7582,20 @@ void Game::runSmoke()
     }
     bool escMenu = (state == ST_TITLE && exitAction == EXIT_NONE);
 
-    // Esc в главном меню ничего не закрывает: игра остаётся открытой.
+    // Esc в главном меню открывает тот же диалог, что и «Выход».
     {
         Input in;
         in.back = true;
         update(1.0f / 120.0f, in);
     }
-    bool escNoQuit = (state == ST_TITLE && !quitRequested);
+    bool escQuitPrompt = (state == ST_TITLE && !quitRequested &&
+                          exitAction == EXIT_GAME && !exitAccepted);
+    {
+        Input in;
+        in.back = true;
+        update(1.0f / 120.0f, in);
+    }
+    bool escQuitCancel = (state == ST_TITLE && !quitRequested && exitAction == EXIT_NONE);
 
     // «Выход» открывает подтверждение, отмена оставляет игру открытой.
     menuIndex = 2;
@@ -7653,16 +7663,17 @@ void Game::runSmoke()
 
     bool menuOk = menuStart && menuSettings && bindWaiting && menuRebind &&
                   bindWaiting2 && menuRebind2 && settingsBack && escMenu &&
-                  escNoQuit && exitQuits && moveAimOk && exitPrompt && exitPaused &&
+                  escQuitPrompt && escQuitCancel && exitQuits && moveAimOk && exitPrompt && exitPaused &&
                   exitCancelled && exitBack && quitPrompt && quitCancelled && quitBack;
     SDL_Log("exitconfirm: level=%d pause=%d cancel=%d back=%d quit=%d cancel=%d back=%d",
             exitPrompt, exitPaused, exitCancelled, exitBack,
             quitPrompt, quitCancelled, quitBack);
     SDL_Log("menu: start=%d settings=%d bind=%d/%d rebind=%d/%d "
-            "back=%d esc=%d escnoquit=%d exit=%d moveaim=%d/%d/%d ok=%d",
+            "back=%d esc=%d escquit=%d esccancel=%d exit=%d moveaim=%d/%d/%d ok=%d",
             menuStart ? 1 : 0, menuSettings ? 1 : 0, bindWaiting ? 1 : 0,
             bindWaiting2 ? 1 : 0, menuRebind ? 1 : 0, menuRebind2 ? 1 : 0,
-            settingsBack ? 1 : 0, escMenu ? 1 : 0, escNoQuit ? 1 : 0,
+            settingsBack ? 1 : 0, escMenu ? 1 : 0, escQuitPrompt ? 1 : 0,
+            escQuitCancel ? 1 : 0,
             exitQuits ? 1 : 0, moveAimUp ? 1 : 0,
             moveAimDown ? 1 : 0, moveAimFwd ? 1 : 0, menuOk ? 1 : 0);
 
