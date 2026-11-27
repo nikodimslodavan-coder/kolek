@@ -353,9 +353,32 @@ void Game::makeScenarios()
     screenshot("shot_level3.bmp");
     SDL_RenderPresent(ren);
 
-    // 7 — победа
+    // 6e — четвёртый уровень: ночная парковка, бетонные блоки и босс у джипа
+    resetWorld(3);
+    state = ST_PLAY;
+    player.x = 7 * 16.0f + 3.0f;
+    player.y = 17 * 16.0f - PLAYER_H;
+    player.facing = 1;
+    player.vx = player.vy = 0;
+    player.grounded = true;
+    for (Monster& m : monsters) {
+        if (m.type == 4) {
+            m.anim = 1.3f;
+            m.hp = 42;
+        }
+    }
+    snapCamera();
+    introTimer = 20.0f;
+    render();
+    screenshot("shot_parking.bmp");
+    SDL_RenderPresent(ren);
+
+    // 7 — победа над боссом парковки
+    resetWorld(3);
+    monsters.clear();
     state = ST_WIN;
     kills = 9;
+    score = 24000;
     spawnConfetti();
     spawnConfetti();
     for (int i = 0; i < 75; ++i) updateParticles(1.0f / 60.0f);

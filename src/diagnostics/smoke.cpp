@@ -949,7 +949,8 @@ void Game::runSmoke()
                 (fallDies && fallRespawns) ? 1 : 0);
     }
 
-    // Кубки вестибюля собраны — дверь на другом конце зала открывается.
+    // Кубки вестибюля собраны — дверь на другом конце зала открывается
+    // и ведёт на ночную парковку с боссом.
     if (level3) {
         monsters.clear();
         for (CupItem& c : cups) {
@@ -965,8 +966,108 @@ void Game::runSmoke()
         player.invuln = 2.0f;
         for (int i = 0; i < 200; ++i) update(1.0f / 120.0f, Input{});
     }
-    bool won = (state == ST_WIN);
-    SDL_Log("win: state=%d kills=%d", state, kills);
+    bool level4 = (levelIndex == 3 && state == ST_PLAY);
+    bool parkingSize = (lvl.w == 40 && lvl.h == 19);
+    bool parkingBare = (cups.empty() && door.w <= 0.0f);
+    int bossCount = 0;
+    bool bossSize = false, bossHpOk = false, bossNearJeep = false;
+    bool bossStandsOnFloor = false, bossFacesPlayer = false;
+    for (const Monster& m : monsters) {
+        if (m.type != 4) continue;
+        ++bossCount;
+        bossSize = (std::fabs(m.b.w - BOSS_W) < 0.1f &&
+                    std::fabs(m.b.h - BOSS_H) < 0.1f);
+        bossHpOk = (m.hp == BOSS_HP && m.maxHp == BOSS_HP);
+        // Джип нарисован примерно на x=396..474, босс стоит вплотную слева.
+        bossNearJeep = (m.b.x >= 280.0f && m.b.x + m.b.w <= 400.0f);
+        bossStandsOnFloor = (std::fabs((m.b.y + m.b.h) - 17 * TILE) < 1.0f);
+        bossFacesPlayer = (m.b.facing == -1);
+    }
+    int parkingPanels = 0;
+    for (int ty = 0; ty < lvl.h; ++ty)
+        for (int tx = 0; tx < lvl.w; ++tx)
+            if (lvl.at(tx, ty) == 't' && ty >= lvl.h - 4) ++parkingPanels;
+    bool bossOnMap = (level4 && parkingSize && parkingBare && bossCount == 1 &&
+                      bossSize && bossHpOk && bossNearJeep &&
+                      bossStandsOnFloor && bossFacesPlayer &&
+                      parkingPanels == 8);
+    SDL_Log("parking: level=%d size=%dx%d boss=%d %dx%d hp=%d/%d nearjeep=%d "
+            "floor=%d face=%d panels=%d ok=%d",
+            levelIndex, lvl.w, lvl.h, bossCount,
+            bossCount ? static_cast<int>(monsters.back().b.w) : 0,
+            bossCount ? static_cast<int>(monsters.back().b.h) : 0,
+            bossCount ? monsters.back().hp : 0,
+            bossCount ? monsters.back().maxHp : 0,
+            bossNearJeep ? 1 : 0, bossStandsOnFloor ? 1 : 0,
+            bossFacesPlayer ? 1 : 0, parkingPanels, bossOnMap ? 1 : 0);
+
+    // Босс упирается в бетонный блок и в правую стену — и разворачивается.
+    bool bossPanelTurn = false, bossWallTurn = false;
+    int bossIdx = -1;
+    for (size_t i = 0; i < monsters.size(); ++i)
+        if (monsters[i].type == 4) { bossIdx = static_cast<int>(i); break; }
+    if (bossIdx >= 0) {
+        player.x = 4 * 16.0f + 3.0f;
+        player.y = 17 * 16.0f - PLAYER_H;
+        player.vx = player.vy = 0;
+        player.grounded = true;
+        player.invuln = 5.0f;
+        Monster& bm = monsters[bossIdx];
+        bm.b.x = 242.0f;             // вплотную к правому краю блока (240)
+        bm.b.y = 17 * 16.0f - BOSS_H;
+        bm.b.vx = -26.0f;
+        bm.b.facing = -1;
+        for (int i = 0; i < 90; ++i) updateMonsters(1.0f / 120.0f);
+        bossPanelTurn = (bm.b.facing == 1 && bm.b.x >= 239.0f);
+
+        bm.b.x = 520.0f;             // недалеко от правой стены (624)
+        bm.b.y = 17 * 16.0f - BOSS_H;
+        bm.b.vx = 26.0f;
+        bm.b.facing = 1;
+        for (int i = 0; i < 120; ++i) updateMonsters(1.0f / 120.0f);
+        bossWallTurn = (bm.b.facing == -1 && bm.b.x <= 545.0f);
+    }
+    SDL_Log("bossturn: panel=%d wall=%d x=%.0f",
+            bossPanelTurn ? 1 : 0, bossWallTurn ? 1 : 0,
+            bossIdx >= 0 ? monsters[bossIdx].b.x : -1.0f);
+
+    // Гигант убивает касанием: отдельная причина смерти.
+    resetWorld(3);
+    state = ST_PLAY;
+    lives = START_LIVES;
+    player.x = 19 * 16.0f + 4.0f;
+    player.y = 17 * 16.0f - PLAYER_H;
+    player.vx = player.vy = 0;
+    player.grounded = true;
+    player.invuln = 0;
+    update(1.0f / 120.0f, Input{});
+    bool bossContact = (state == ST_DYING && deathCause == DEATH_BOSS &&
+                        lives == START_LIVES - 1);
+    SDL_Log("bosscontact: state=%d cause=%d lives=%d ok=%d",
+            state, deathCause, lives, bossContact ? 1 : 0);
+
+    // 70 дробин = 10 залпов по 7; 69-я ещё не убивает.
+    resetWorld(3);
+    state = ST_PLAY;
+    bool bossPellets = false, bossVictory = false;
+    int bossIdx2 = -1;
+    for (size_t i = 0; i < monsters.size(); ++i)
+        if (monsters[i].type == 4) { bossIdx2 = static_cast<int>(i); break; }
+    bool bossMath = (BOSS_HP == PELLET_COUNT * 10);
+    if (bossIdx2 >= 0) {
+        Monster& bm = monsters[bossIdx2];
+        int scoreBefore = score;
+        for (int i = 0; i < BOSS_HP - 1; ++i) damageMonster(bm, 1, 1.0f);
+        bool aliveAtOne = (!bm.dead && bm.hp == 1);
+        damageMonster(bm, 1, 1.0f);
+        bossPellets = (aliveAtOne && bm.dead && bossDefeated &&
+                       score == scoreBefore + BOSS_SCORE);
+        for (int i = 0; i < 240; ++i) update(1.0f / 120.0f, Input{});
+        bossVictory = (state == ST_WIN);
+    }
+    SDL_Log("bossfight: math=%d pellets=%d victory=%d state=%d kills=%d",
+            bossMath ? 1 : 0, bossPellets ? 1 : 0, bossVictory ? 1 : 0,
+            state, kills);
 
     // 9. Лестницы второго уровня — тот же зигзаг из двух тайлов, что и в первом.
     bool level2Stairs = false;
@@ -1229,7 +1330,9 @@ void Game::runSmoke()
               reloadProportional && reloadLocked &&
               reloadDone && dying && respawned && gameOver && slidesOk &&
               level2 && level2Stairs && techDecorOk && wallSlide && level3 &&
-              lobbyOk && lobbyBonuses && fallDies && fallRespawns && won &&
+              lobbyOk && lobbyBonuses && fallDies && fallRespawns &&
+              level4 && bossOnMap && bossPanelTurn && bossWallTurn &&
+              bossContact && bossMath && bossPellets && bossVictory &&
               menuOk && devSecretOk;
     SDL_Log("smoke %s", ok ? "OK" : "FAIL");
 }
