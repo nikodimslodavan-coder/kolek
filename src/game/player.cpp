@@ -289,20 +289,28 @@ void Game::damageMonster(Monster& m, int dmg, float dirX)
     if (m.dead) return;
     m.hp -= dmg;
     m.hurtFlash = 0.12f;
-    m.b.vx += (dirX >= 0.0f ? 1.0f : -1.0f) * 24.0f;
+    // Гиганта с места не сдвинуть дробью.
+    if (m.type != 4)
+        m.b.vx += (dirX >= 0.0f ? 1.0f : -1.0f) * 24.0f;
 
     if (m.hp <= 0) {
         m.dead = true;
         ++kills;
         score += KILL_SCORE[m.type];
         addScorePopup(KILL_SCORE[m.type], SDL_Color{255, 226, 150, 255});
-        shake = std::max(shake, 0.30f);
+        shake = std::max(shake, m.type == 4 ? 0.55f : 0.30f);
+        if (m.type == 4) {
+            bossDefeated = true;
+            bossWinTimer = 0;
+        }
         SDL_Color blood = (m.type == 0) ? SDL_Color{150, 40, 45, 255}
                         : (m.type == 3) ? SDL_Color{120, 26, 34, 255}
+                        : (m.type == 4) ? SDL_Color{110, 22, 36, 255}
                                         : SDL_Color{142, 40, 42, 255};
-        spawnSparkle(m.b.x + m.b.w * 0.5f, m.b.y + m.b.h * 0.5f, 18, blood);
-        spawnSparkle(m.b.x + m.b.w * 0.5f, m.b.y + m.b.h * 0.5f, 8,
-                     SDL_Color{255, 200, 90, 255});
+        spawnSparkle(m.b.x + m.b.w * 0.5f, m.b.y + m.b.h * 0.5f,
+                     m.type == 4 ? 42 : 18, blood);
+        spawnSparkle(m.b.x + m.b.w * 0.5f, m.b.y + m.b.h * 0.5f,
+                     m.type == 4 ? 20 : 8, SDL_Color{255, 200, 90, 255});
     } else {
         spawnSparkle(m.b.x + m.b.w * 0.5f, m.b.y + m.b.h * 0.5f, 5,
                      (m.type == 0) ? SDL_Color{180, 60, 60, 255}

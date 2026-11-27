@@ -8,6 +8,8 @@ void Game::resetWorld(int index)
 {
     secretDoorActive = false;
     secretDoor = RectF{};
+    bossDefeated = false;
+    bossWinTimer = 0;
 
     levelIndex = std::max(0, std::min(index, LEVEL_COUNT - 1));
     lvl.load(LEVEL_MAPS[levelIndex]);
@@ -49,8 +51,10 @@ void Game::resetWorld(int index)
         door.h = (dy1 - dy0 + 1) * TILE;
     }
 
-    // украшения: девять случайных тайлов на твёрдом полу, по три каждого вида
+    // украшения: девять случайных тайлов на твёрдом полу, по три каждого вида.
+    // На парковке с боссом наград нет — только бой.
     jewelry.clear();
+    if (levelIndex != 3) {
     std::vector<RectF> spots;
     std::vector<RectF> raised;
     for (int ty = 1; ty < lvl.h; ++ty) {
@@ -114,6 +118,7 @@ void Game::resetWorld(int index)
         jw.type = static_cast<int>(i % 3);
         jw.phase = rndf(rngState, 0.0f, 6.28f);
         jewelry.push_back(jw);
+    }
     }
 
     // декор стен
@@ -180,7 +185,7 @@ void Game::resetWorld(int index)
                     D(tx, floor - 2, DEC_STEPLADDER);
             }
         }
-    } else {
+    } else if (levelIndex == 2) {
         // Третий уровень — парадный вестибюль: люстры, портреты, бра,
         // зеркала и напольные часы.
         auto free = [&](int tx, int ty) {
@@ -308,7 +313,7 @@ void Game::resetWorld(int index)
         for (int x : groundRugs) rugs.push_back(RectF{x * 16.f, 240.f, 9 * 16.f, 6.f});
         const int upperRugs[] = {6, 36, 80, 120};
         for (int x : upperRugs) rugs.push_back(RectF{x * 16.f, 128.f, 8 * 16.f, 5.f});
-    } else {
+    } else if (levelIndex == 2) {
         // Вестибюль: одна длинная ковровая дорожка, разбитая пропастями.
         const int runX[] = {4, 24, 58, 105, 150, 205};
         const int runW[] = {14, 16, 20, 15, 20, 19};
@@ -318,7 +323,7 @@ void Game::resetWorld(int index)
     }
 
     // ковры: этажи повторяются со сдвигом 272 px, подвал — только напольные
-    if (levelIndex != 2) {
+    if (levelIndex == 0 || levelIndex == 1) {
         const size_t n = rugs.size();
         for (size_t i = 0; i < n; ++i)
             rugs.push_back(RectF{rugs[i].x, rugs[i].y + 272.0f, rugs[i].w, rugs[i].h});
@@ -337,14 +342,29 @@ void Game::resetWorld(int index)
     for (int ty = 0; ty < lvl.h; ++ty) {
         for (int tx = 0; tx < lvl.w; ++tx) {
             char c = lvl.at(tx, ty);
-            if (c != 'z' && c != 'v' && c != 'n' && c != 'd') continue;
+            if (c != 'z' && c != 'v' && c != 'n' && c != 'd' && c != 'B')
+                continue;
             Monster m;
             m.type = (c == 'z') ? 0
                      : (c == 'v') ? 1
-                     : (c == 'n') ? 2 : 3;
+                     : (c == 'n') ? 2
+                     : (c == 'B') ? 4 : 3;
             m.seed = rndf(rngState, 0.0f, 6.28f);
             m.b.facing = (hash2(tx, ty) & 1u) ? 1 : -1;
-            if (m.type == 0) {
+            if (m.type == 4) {
+                // Босс парковки: гигантский браток в восемь Колянов ростом,
+                // стоит у джипа на асфальте и смотрит в сторону игрока.
+                m.b.w = BOSS_W;
+                m.b.h = BOSS_H;
+                m.b.x = tx * 16.0f;
+                int floorRow = ty;
+                while (floorRow < lvl.h && !lvl.solid(tx, floorRow)) ++floorRow;
+                m.b.y = (floorRow < lvl.h)
+                            ? (floorRow * 16.0f - m.b.h)
+                            : (ty * 16.0f + 16.0f - m.b.h);
+                m.b.facing = -1;
+                m.hp = m.maxHp = BOSS_HP;
+            } else if (m.type == 0) {
                 // паук: в полтора раза выше прежнего, юркий; живёт на потолке
                 // своей комнаты и спускается к Коляну на паутине.
                 m.b.w = 16;

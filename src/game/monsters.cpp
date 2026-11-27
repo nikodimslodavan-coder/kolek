@@ -30,6 +30,32 @@ void Game::updateMonsters(float dt)
             continue;
         }
 
+        if (m.type == 4) {
+            // Босс не гонится за Коляном: он мерно патрулирует площадку
+            // между бетонными блоками и правой стеной. Упёршись в блок,
+            // разворачивается и идёт обратно.
+            b.vy = std::min(b.vy + GRAVITY * dt, MAX_FALL);
+            int bossDir = b.facing;
+            const float bossSpeed = 26.0f;
+            m.anim += dt * 1.6f;
+            b.vx = approach(b.vx, bossDir * bossSpeed, 260.0f * dt);
+            moveX(lvl, b, b.vx * dt);
+            moveY(lvl, b, b.vy * dt);
+            if (b.blockedX) {
+                b.facing = -bossDir;
+                b.vx = b.facing * bossSpeed;
+            }
+            if (state == ST_PLAY && player.invuln <= 0 &&
+                overlapRect(player.x + 1.0f, player.y + 3.0f,
+                            player.w - 2.0f, player.h - 4.0f,
+                            b.x + 2.0f, b.y + 2.0f,
+                            b.w - 4.0f, b.h - 4.0f)) {
+                killPlayer(DEATH_BOSS);
+                break;
+            }
+            continue;
+        }
+
         b.vy = std::min(b.vy + GRAVITY * dt, MAX_FALL);
         if (m.throwCd > 0.0f) m.throwCd -= dt;
 
@@ -116,6 +142,7 @@ void Game::updateMonsters(float dt)
             killPlayer(m.type == 0 ? DEATH_SPIDER
                                    : (m.type == 1) ? DEATH_BAT
                                    : (m.type == 2) ? DEATH_BULLET
+                                   : (m.type == 4) ? DEATH_BOSS
                                                    : DEATH_DOBERMAN);
             break;
         }

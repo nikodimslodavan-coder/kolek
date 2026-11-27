@@ -64,6 +64,8 @@ struct Game {
     int lives = START_LIVES;
     int deathCause = DEATH_SPIDER;
     float deathTimer = 0;
+    bool bossDefeated = false;    // босс парковки повержен
+    float bossWinTimer = 0;       // короткая пауза до экрана победы
 
     int mag = MAG_SIZE;
     bool reloading = false;
@@ -132,6 +134,7 @@ struct Game {
     void drawWallpaper();
     void drawTechnicalWallpaper();
     void drawLobbyWallpaper();
+    void drawParkingWallpaper();
     void drawTiles();
     void drawBrick(int x, int y, int tx, int ty);
     void drawFloorTile(int x, int y, int tx, int ty);
@@ -166,6 +169,7 @@ struct Game {
     void drawBatThug(const Monster& m);
     void drawPistolThug(const Monster& m);
     void drawDoberman(const Monster& m);
+    void drawBoss(const Monster& m);
     void drawBullets();
     void drawGuy(const Body& b, const Palette& p);
     void drawParticles();

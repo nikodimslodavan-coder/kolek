@@ -37,8 +37,13 @@ constexpr float PLAYER_H       = 30.0f;  // Колян в полтора раз�
 constexpr bool DEV_SECRET_LEVELS = true;
 
 constexpr int   CUP_SCORE      = 1000;   // кубок-трофей
-// паук, браток с битой, браток с пистолетом, доберман
-constexpr int   KILL_SCORE[4]  = {200, 100, 300, 250};
+constexpr int   BOSS_SCORE     = 5000;   // гигантский браток на парковке
+constexpr int   BOSS_HP        = 70;     // 10 залпов по 7 дробин
+constexpr float BOSS_W         = 80.0f;  // восемь Колянов в ширину
+constexpr float BOSS_H         = 240.0f; // и восемь в высоту
+constexpr float BOSS_WIN_DELAY = 1.5f;   // пауза после смерти босса
+// паук, браток с битой, браток с пистолетом, доберман, босс
+constexpr int   KILL_SCORE[5]  = {200, 100, 300, 250, BOSS_SCORE};
 constexpr int   JEWEL_SCORE[3] = {200, 400, 600};   // три вида украшений
 
 enum GameState {
@@ -47,7 +52,7 @@ enum GameState {
 };
 enum DeathCause {
     DEATH_SPIDER = 0, DEATH_BAT = 1, DEATH_BULLET = 2, DEATH_DOBERMAN = 3,
-    DEATH_FALL = 4
+    DEATH_FALL = 4, DEATH_BOSS = 5
 };
 
 enum ExitAction { EXIT_NONE, EXIT_LEVEL, EXIT_GAME };
