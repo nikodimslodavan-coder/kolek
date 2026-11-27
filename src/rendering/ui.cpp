@@ -7,32 +7,99 @@ namespace kolek {
 
 void Game::drawHUD()
 {
-    // Верхний левый блок: кубки и очки в одной тонкой рамке.
-    bool allCups = cupsGot >= static_cast<int>(cups.size());
-    float pulse = allCups ? (0.5f + 0.5f * std::sin(timeSec * 4.5f)) : 0.0f;
-    SDL_Rect panel{4, 4, 100, 17};
-    SDL_SetRenderDrawColor(ren, 10, 8, 12, 145);
-    SDL_RenderFillRect(ren, &panel);
-    SDL_SetRenderDrawColor(ren,
-                           allCups ? static_cast<Uint8>(160 + pulse * 60) : 110,
-                           allCups ? static_cast<Uint8>(126 + pulse * 50) : 86,
-                           allCups ? static_cast<Uint8>(58 + pulse * 40) : 48, 200);
-    SDL_RenderDrawRect(ren, &panel);
+    const bool bossLevel = (levelIndex == 3);
 
-    drawCupIcon(6, 7, std::sin(timeSec * 2.5f) * (allCups ? 1.0f : 0.4f));
-    std::string cupText = std::to_string(cupsGot) + "/" + std::to_string(cups.size());
-    pixfont::drawText(ren, 21, 9, cupText, 1,
-                      allCups ? SDL_Color{255, 224, 120, 255}
-                              : SDL_Color{236, 226, 206, 255}, false);
+    if (bossLevel) {
+        // На парковке вместо кубков — полоса здоровья босса.
+        int bossHp = 0, bossMax = BOSS_HP;
+        for (const Monster& bm : monsters) {
+            if (bm.type == 4 && !bm.dead) {
+                bossHp = bm.hp;
+                bossMax = bm.maxHp;
+                break;
+            }
+        }
 
-    SDL_SetRenderDrawColor(ren, 88, 70, 42, 180);
-    SDL_RenderDrawLine(ren, 42, 7, 42, 17);
+        SDL_Rect panel{4, 4, 128, 17};
+        SDL_SetRenderDrawColor(ren, 16, 8, 12, 155);
+        SDL_RenderFillRect(ren, &panel);
+        SDL_SetRenderDrawColor(ren, 176, 66, 64, 205);
+        SDL_RenderDrawRect(ren, &panel);
 
-    // Маленькая монетка и счёт.
-    fillTriangle(49, 7, 52, 11, 49, 15, SDL_Color{255, 205, 80, 255});
-    fillTriangle(49, 7, 46, 11, 49, 15, SDL_Color{255, 232, 160, 255});
-    pixfont::drawText(ren, 56, 9, std::to_string(score), 1,
-                      SDL_Color{255, 234, 172, 255}, false);
+        // Крошечная злая голова босса.
+        SDL_SetRenderDrawColor(ren, 214, 168, 132, 255);
+        SDL_Rect bhead{7, 7, 10, 9};
+        SDL_RenderFillRect(ren, &bhead);
+        SDL_SetRenderDrawColor(ren, 32, 30, 36, 255);
+        SDL_Rect bcap{6, 5, 12, 3};
+        SDL_RenderFillRect(ren, &bcap);
+        SDL_SetRenderDrawColor(ren, 244, 66, 58, 255);
+        SDL_Rect beye{9, 9, 2, 2};
+        SDL_Rect beye2{13, 9, 2, 2};
+        SDL_RenderFillRect(ren, &beye);
+        SDL_RenderFillRect(ren, &beye2);
+
+        pixfont::drawText(ren, 21, 9, "БОСС", 1,
+                          SDL_Color{240, 196, 150, 255}, false);
+
+        SDL_SetRenderDrawColor(ren, 88, 48, 48, 180);
+        SDL_RenderDrawLine(ren, 55, 7, 55, 17);
+
+        float k = (bossMax > 0)
+                      ? clampf(static_cast<float>(bossHp) /
+                                   static_cast<float>(bossMax), 0.0f, 1.0f)
+                      : 0.0f;
+        SDL_SetRenderDrawColor(ren, 40, 22, 24, 230);
+        SDL_Rect barBg{60, 8, 40, 6};
+        SDL_RenderFillRect(ren, &barBg);
+        SDL_SetRenderDrawColor(ren, static_cast<Uint8>(196 + 40 * k), 58, 62, 255);
+        SDL_Rect bar{60, 8, static_cast<int>(40.0f * k), 6};
+        SDL_RenderFillRect(ren, &bar);
+        SDL_SetRenderDrawColor(ren, 120, 92, 92, 160);
+        SDL_RenderDrawRect(ren, &barBg);
+
+        std::string hpText = std::to_string(std::max(0, bossHp));
+        pixfont::drawText(ren, 104, 9, hpText, 1,
+                          SDL_Color{255, 220, 206, 255}, false);
+
+        // Очки — рядом, отдельной узкой панелью.
+        SDL_Rect scorePanel{136, 4, 60, 17};
+        SDL_SetRenderDrawColor(ren, 10, 8, 12, 145);
+        SDL_RenderFillRect(ren, &scorePanel);
+        SDL_SetRenderDrawColor(ren, 106, 86, 52, 200);
+        SDL_RenderDrawRect(ren, &scorePanel);
+        fillTriangle(144, 7, 147, 11, 144, 15, SDL_Color{255, 205, 80, 255});
+        fillTriangle(144, 7, 141, 11, 144, 15, SDL_Color{255, 232, 160, 255});
+        pixfont::drawText(ren, 151, 9, std::to_string(score), 1,
+                          SDL_Color{255, 234, 172, 255}, false);
+    } else {
+        // Верхний левый блок: кубки и очки в одной тонкой рамке.
+        bool allCups = cupsGot >= static_cast<int>(cups.size());
+        float pulse = allCups ? (0.5f + 0.5f * std::sin(timeSec * 4.5f)) : 0.0f;
+        SDL_Rect panel{4, 4, 100, 17};
+        SDL_SetRenderDrawColor(ren, 10, 8, 12, 145);
+        SDL_RenderFillRect(ren, &panel);
+        SDL_SetRenderDrawColor(ren,
+                               allCups ? static_cast<Uint8>(160 + pulse * 60) : 110,
+                               allCups ? static_cast<Uint8>(126 + pulse * 50) : 86,
+                               allCups ? static_cast<Uint8>(58 + pulse * 40) : 48, 200);
+        SDL_RenderDrawRect(ren, &panel);
+
+        drawCupIcon(6, 7, std::sin(timeSec * 2.5f) * (allCups ? 1.0f : 0.4f));
+        std::string cupText = std::to_string(cupsGot) + "/" + std::to_string(cups.size());
+        pixfont::drawText(ren, 21, 9, cupText, 1,
+                          allCups ? SDL_Color{255, 224, 120, 255}
+                                  : SDL_Color{236, 226, 206, 255}, false);
+
+        SDL_SetRenderDrawColor(ren, 88, 70, 42, 180);
+        SDL_RenderDrawLine(ren, 42, 7, 42, 17);
+
+        // Маленькая монетка и счёт.
+        fillTriangle(49, 7, 52, 11, 49, 15, SDL_Color{255, 205, 80, 255});
+        fillTriangle(49, 7, 46, 11, 49, 15, SDL_Color{255, 232, 160, 255});
+        pixfont::drawText(ren, 56, 9, std::to_string(score), 1,
+                          SDL_Color{255, 234, 172, 255}, false);
+    }
 
     // Сердца вверху по центру, без рамки.
     for (int i = 0; i < START_LIVES; ++i) {
@@ -49,8 +116,10 @@ void Game::drawHUD()
             SDL_RenderFillRect(ren, &shine);
         }
     }
-    std::string floorText = "ЭТАЖ " + std::to_string(levelIndex + 1) + "/" +
-                            std::to_string(LEVEL_COUNT);
+    std::string floorText = bossLevel
+        ? "ПАРКОВКА"
+        : "ЭТАЖ " + std::to_string(levelIndex + 1) + "/" +
+              std::to_string(LEVEL_COUNT);
     pixfont::drawTextCentered(ren, VIEW_W / 2, 13, floorText, 1,
                               SDL_Color{214, 204, 184, 220}, false);
 
@@ -568,24 +637,26 @@ void Game::drawLevelSelectScreen()
                               "СЕКРЕТНАЯ ДВЕРЬ — ТОЛЬКО ДЛЯ РАЗРАБОТКИ", 1,
                               SDL_Color{150, 140, 128, 255});
 
+    static const char* const levelNames[4] = {
+        "ОСОБНЯК", "ТЕХЭТАЖ", "ВЕСТИБЮЛЬ", "ПАРКОВКА"
+    };
     for (int i = 0; i < LEVEL_COUNT; ++i) {
         bool sel = (i == levelSelectIndex);
-        int y = 84 + i * 36;
+        int y = 78 + i * 29;
 
         if (sel) {
             SDL_SetRenderDrawColor(ren, 30, 74, 88, 220);
-            SDL_Rect hl{VIEW_W / 2 - 150, y - 8, 300, 30};
+            SDL_Rect hl{VIEW_W / 2 - 150, y - 6, 300, 25};
             SDL_RenderFillRect(ren, &hl);
             SDL_SetRenderDrawColor(ren, 100, 224, 240, 255);
-            SDL_Rect hlTop{VIEW_W / 2 - 150, y - 8, 300, 1};
-            SDL_Rect hlBot{VIEW_W / 2 - 150, y + 21, 300, 1};
+            SDL_Rect hlTop{VIEW_W / 2 - 150, y - 6, 300, 1};
+            SDL_Rect hlBot{VIEW_W / 2 - 150, y + 18, 300, 1};
             SDL_RenderFillRect(ren, &hlTop);
             SDL_RenderFillRect(ren, &hlBot);
         }
 
-        std::string label =
-            "УРОВЕНЬ " + std::to_string(i + 1) + " — ЭТАЖ " +
-            std::to_string(i + 1) + "/" + std::to_string(LEVEL_COUNT);
+        std::string label = "УРОВЕНЬ " + std::to_string(i + 1) + " — " +
+                            ((i >= 0 && i < 4) ? levelNames[i] : "");
         pixfont::drawTextCentered(ren, VIEW_W / 2, y,
                                   label, sel ? 2 : 1,
                                   sel ? SDL_Color{255, 236, 170, 255}
@@ -614,9 +685,13 @@ void Game::drawWinScreen()
     SDL_RenderFillRect(ren, &l1);
     SDL_RenderFillRect(ren, &l2);
 
-    pixfont::drawTextCentered(ren, VIEW_W / 2, 80, "КОЛЯН ВЫБРАЛСЯ!", 3,
+    const bool bossWin = (levelIndex == 3);
+    pixfont::drawTextCentered(ren, VIEW_W / 2, 80,
+                              bossWin ? "БОСС ПОВЕРЖЕН!" : "КОЛЯН ВЫБРАЛСЯ!", 3,
                               SDL_Color{255, 226, 140, 255});
-    pixfont::drawTextCentered(ren, VIEW_W / 2, 124, "ИЗ АПАРТАМЕНТОВ «ДАЙМОНД»", 2,
+    pixfont::drawTextCentered(ren, VIEW_W / 2, 124,
+                              bossWin ? "ПАРКОВКА ПЕРЕД «ДАЙМОНДОМ» СВОБОДНА"
+                                      : "ИЗ АПАРТАМЕНТОВ «ДАЙМОНД»", 2,
                               SDL_Color{230, 220, 200, 255});
 
     if (std::fmod(titleBlink, 1.15f) < 0.78f) {
@@ -625,8 +700,11 @@ void Game::drawWinScreen()
                                              : "R - ИГРАТЬ СНОВА", 2,
                                   SDL_Color{255, 232, 170, 255});
     }
-    std::string stats = "КУБКИ 3/3   ОЧКИ: " + std::to_string(score) +
-                        "   МОНСТРОВ: " + std::to_string(kills);
+    std::string stats = bossWin
+        ? "ОЧКИ: " + std::to_string(score) +
+              "   МОНСТРОВ: " + std::to_string(kills)
+        : "КУБКИ 3/3   ОЧКИ: " + std::to_string(score) +
+              "   МОНСТРОВ: " + std::to_string(kills);
     pixfont::drawTextCentered(ren, VIEW_W / 2, 226, stats, 1,
                               SDL_Color{190, 180, 160, 255});
 }
@@ -637,6 +715,7 @@ void Game::drawDeathOverlay()
     const bool bullet = (deathCause == DEATH_BULLET);
     const bool dog = (deathCause == DEATH_DOBERMAN);
     const bool fall = (deathCause == DEATH_FALL);
+    const bool boss = (deathCause == DEATH_BOSS);
     float t = deathTimer;
 
     SDL_SetRenderDrawColor(ren, 6, 3, 8, 170);
@@ -651,6 +730,7 @@ void Game::drawDeathOverlay()
     SDL_Color edge = spider ? SDL_Color{178, 86, 140, 255}
                             : bullet ? SDL_Color{236, 196, 96, 255}
                             : dog ? SDL_Color{196, 52, 52, 255}
+                            : boss ? SDL_Color{152, 42, 56, 255}
                             : fall ? SDL_Color{132, 118, 104, 255}
                                   : SDL_Color{168, 112, 62, 255};
     SDL_SetRenderDrawColor(ren, edge.r, edge.g, edge.b, 255);
@@ -890,8 +970,9 @@ void Game::drawDeathOverlay()
             box(cx - 12, cy + 36, 24, 3, SDL_Color{150, 44, 50, 220});
             box(cx - 4, cy + 34, 8, 2, SDL_Color{182, 60, 62, 200});
         }
-    } else if (deathCause == DEATH_BAT) {
-        // Смерть от братка с битой: удар сзади сносит Коляну голову.
+    } else if (deathCause == DEATH_BAT || boss) {
+        // Смерть от братка с битой или от гиганта на парковке:
+        // удар сзади сносит Коляну голову.
         float u = clampf((t - 0.10f) / 0.85f, 0.0f, 1.0f);
         float impact = clampf((t - 0.95f) / 0.12f, 0.0f, 1.0f);
         float jt = clampf((t - 0.95f) / 0.30f, 0.0f, 1.0f);
@@ -1190,12 +1271,14 @@ void Game::drawGameOverScreen()
         (deathCause == DEATH_SPIDER)   ? "ПОСЛЕДНЯЯ ПРИЧИНА: ПАУК"
         : (deathCause == DEATH_BULLET) ? "ПОСЛЕДНЯЯ ПРИЧИНА: ПУЛЯ"
         : (deathCause == DEATH_DOBERMAN) ? "ПОСЛЕДНЯЯ ПРИЧИНА: ДОБЕРМАН"
+        : (deathCause == DEATH_BOSS)   ? "ПОСЛЕДНЯЯ ПРИЧИНА: ГИГАНТ С ПАРКОВКИ"
         : (deathCause == DEATH_FALL)   ? "ПОСЛЕДНЯЯ ПРИЧИНА: ПАДЕНИЕ В ПРОПАСТЬ"
                                         : "ПОСЛЕДНЯЯ ПРИЧИНА: БРАТОК С БИТОЙ";
     SDL_Color causeCol =
         (deathCause == DEATH_SPIDER)   ? SDL_Color{196, 110, 166, 255}
         : (deathCause == DEATH_BULLET) ? SDL_Color{236, 196, 96, 255}
         : (deathCause == DEATH_DOBERMAN) ? SDL_Color{226, 90, 76, 255}
+        : (deathCause == DEATH_BOSS)   ? SDL_Color{236, 118, 108, 255}
         : (deathCause == DEATH_FALL)   ? SDL_Color{150, 136, 120, 255}
                                          : SDL_Color{206, 154, 96, 255};
     pixfont::drawTextCentered(ren, VIEW_W / 2, 138, causeText, 1, causeCol);

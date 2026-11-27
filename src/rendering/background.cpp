@@ -16,6 +16,11 @@ void Game::drawWallpaper()
         drawLobbyWallpaper();
         return;
     }
+    // Четвёртый — ночная парковка перед апартаментами.
+    if (levelIndex == 3) {
+        drawParkingWallpaper();
+        return;
+    }
 
     int tx0 = std::max(0, static_cast<int>(camX / TILE) - 1);
     int tx1 = std::min(lvl.w - 1, static_cast<int>((camX + VIEW_W) / TILE) + 1);
@@ -278,6 +283,230 @@ void Game::drawLobbyWallpaper()
               6.0f, SDL_Color{255, 220, 160, static_cast<Uint8>(6 + i * 4)});
 }
 
+void Game::drawParkingWallpaper()
+{
+    // Ночная парковка перед «ДАЙМОНДОМ»: тёмное небо, фасад дома с
+    // освещёнными окнами, асфальт с разметкой, фонари и джип у босса.
+    const float floorY = (lvl.h - 2) * TILE;       // ряд 17 — асфальт
+    const float asphaltTop = floorY - 42.0f;
+    const float facadeTop = 62.0f;
+    const float facadeBottom = asphaltTop - 6.0f;
+
+    int tx0 = std::max(0, static_cast<int>(camX / TILE) - 1);
+    int tx1 = std::min(lvl.w - 1, static_cast<int>((camX + VIEW_W) / TILE) + 1);
+
+    // Небо: несколько холодных полос от почти чёрного к синему.
+    for (int i = 0; i < 8; ++i) {
+        SDL_Color sky{static_cast<Uint8>(10 + i * 3),
+                      static_cast<Uint8>(14 + i * 4),
+                      static_cast<Uint8>(34 + i * 5), 255};
+        fillW(camX - 8.0f, static_cast<float>(i * 9), VIEW_W + 16.0f, 10.0f, sky);
+    }
+
+    // Редкие звёзды над крышей.
+    for (int tx = tx0; tx <= tx1; ++tx) {
+        for (int k = 0; k < 3; ++k) {
+            uint32_t sh = hash2(tx * 3 + k, 29);
+            if (sh % 6 != 0) continue;
+            float starX = tx * 16.0f + static_cast<float>((sh >> 4) % 16);
+            float starY = 3.0f + static_cast<float>((sh >> 9) % 52);
+            Uint8 a = static_cast<Uint8>(90 + (sh >> 17) % 120);
+            fillW(starX, starY, 1.0f, 1.0f, SDL_Color{210, 220, 255, a});
+        }
+    }
+
+    // Луна с лёгким ореолом.
+    {
+        int mx = sx(386.0f);
+        int my = sy(31.0f);
+        fillCircle(mx, my, 10, SDL_Color{210, 214, 196, 26});
+        fillCircle(mx, my, 8, SDL_Color{224, 224, 202, 235});
+        fillCircle(mx - 2, my - 2, 6, SDL_Color{240, 238, 216, 245});
+        fillCircle(mx + 3, my + 2, 2, SDL_Color{198, 198, 180, 150});
+    }
+
+    // Фасад апартаментов: тёмные бетонные панели и сетка окон.
+    fillW(camX - 8.0f, facadeTop, VIEW_W + 16.0f,
+          facadeBottom - facadeTop, SDL_Color{34, 37, 52, 255});
+    // Парапет крыши.
+    fillW(camX - 8.0f, facadeTop - 6.0f, VIEW_W + 16.0f, 7.0f,
+          SDL_Color{24, 26, 38, 255});
+    fillW(camX - 8.0f, facadeTop - 1.0f, VIEW_W + 16.0f, 2.0f,
+          SDL_Color{76, 80, 100, 180});
+
+    for (int tx = tx0; tx <= tx1; ++tx) {
+        float x = tx * 16.0f;
+        uint32_t h = hash2(tx, 13);
+
+        // Вертикальные швы панелей и потёки.
+        if (tx % 4 == 0) {
+            fillW(x, facadeTop, 1.0f, facadeBottom - facadeTop,
+                  SDL_Color{20, 22, 32, 255});
+            fillW(x + 1.0f, facadeTop, 1.0f, facadeBottom - facadeTop,
+                  SDL_Color{56, 60, 78, 70});
+        }
+        if ((h >> 5) % 11 == 0)
+            fillW(x + 4.0f, facadeTop + 12.0f + static_cast<float>(h % 30),
+                  2.0f, 26.0f + static_cast<float>((h >> 8) % 30),
+                  SDL_Color{18, 20, 28, 80});
+
+        // Четыре этажа окон. Часть горит тёплым светом, часть — тёмная.
+        for (int row = 0; row < 4; ++row) {
+            float wy = facadeTop + 14.0f + static_cast<float>(row) * 38.0f;
+            uint32_t wh = hash2(tx, row * 41 + 7);
+            bool lit = (wh % 7 < 3);
+            bool curtain = ((wh >> 4) % 5 == 0);
+
+            fillW(x + 2.0f, wy, 12.0f, 22.0f, SDL_Color{24, 26, 38, 255});
+            SDL_Color glass = lit ? SDL_Color{232, 184, 94, 235}
+                                  : SDL_Color{30, 40, 66, 220};
+            if (curtain) glass = lit ? SDL_Color{198, 132, 78, 220}
+                                     : SDL_Color{26, 32, 54, 220};
+            fillW(x + 3.0f, wy + 1.0f, 10.0f, 20.0f, glass);
+
+            // Переплёт и подоконник.
+            fillW(x + 7.0f, wy + 1.0f, 1.0f, 20.0f,
+                  SDL_Color{18, 20, 28, 200});
+            fillW(x + 3.0f, wy + 10.0f, 10.0f, 1.0f,
+                  SDL_Color{18, 20, 28, 180});
+            fillW(x + 1.0f, wy + 21.0f, 14.0f, 2.0f,
+                  SDL_Color{56, 58, 72, 220});
+            if (lit)
+                fillW(x + 4.0f, wy + 2.0f, 3.0f, 7.0f,
+                      SDL_Color{255, 226, 160, 55});
+
+            // Редкие балконы с решёткой.
+            if ((wh >> 9) % 6 == 0) {
+                fillW(x + 1.0f, wy + 23.0f, 14.0f, 2.0f,
+                      SDL_Color{64, 66, 78, 255});
+                for (int bx = 2; bx < 14; bx += 3)
+                    fillW(x + static_cast<float>(bx), wy + 19.0f, 1.0f, 5.0f,
+                          SDL_Color{52, 54, 66, 230});
+            }
+        }
+    }
+
+    // Цоколь и входная группа с тёплым светом.
+    fillW(camX - 8.0f, facadeBottom - 22.0f, VIEW_W + 16.0f, 22.0f,
+          SDL_Color{26, 27, 38, 255});
+    fillW(camX - 8.0f, facadeBottom - 3.0f, VIEW_W + 16.0f, 3.0f,
+          SDL_Color{52, 54, 66, 255});
+    {
+        const float doorX = 298.0f;
+        const float doorTop = facadeBottom - 42.0f;
+        fillW(doorX - 6.0f, doorTop - 4.0f, 60.0f, 46.0f,
+              SDL_Color{20, 22, 32, 255});
+        fillW(doorX, doorTop, 48.0f, 40.0f, SDL_Color{44, 42, 44, 255});
+        fillW(doorX + 3.0f, doorTop + 4.0f, 18.0f, 33.0f,
+              SDL_Color{232, 184, 96, 210});
+        fillW(doorX + 27.0f, doorTop + 4.0f, 18.0f, 33.0f,
+              SDL_Color{232, 184, 96, 210});
+        fillW(doorX + 23.0f, doorTop + 4.0f, 2.0f, 33.0f,
+              SDL_Color{28, 26, 30, 255});
+        // Козырёк и табличка дома.
+        fillW(doorX - 10.0f, doorTop - 8.0f, 68.0f, 5.0f,
+              SDL_Color{76, 62, 44, 255});
+        addLight(doorX + 24.0f, doorTop + 18.0f, 48.0f,
+                 SDL_Color{255, 186, 96, 255}, 34.0f);
+    }
+
+    // Вывеска на фасаде.
+    {
+        const std::string sign = "АПАРТАМЕНТЫ «ДАЙМОНД»";
+        int sw = pixfont::textWidth(sign, 1);
+        float wx = 320.0f - sw * 0.5f;
+        fillW(wx - 3.0f, facadeTop + 2.0f, static_cast<float>(sw) + 6.0f, 10.0f,
+              SDL_Color{18, 19, 28, 230});
+        pixfont::drawText(ren, sx(wx), sy(facadeTop + 3.0f), sign, 1,
+                          SDL_Color{196, 176, 132, 220}, false);
+    }
+
+    // Тротуар и асфальт.
+    fillW(camX - 8.0f, asphaltTop - 5.0f, VIEW_W + 16.0f, 6.0f,
+          SDL_Color{66, 65, 68, 255});
+    fillW(camX - 8.0f, asphaltTop - 5.0f, VIEW_W + 16.0f, 1.0f,
+          SDL_Color{104, 102, 100, 180});
+    fillW(camX - 8.0f, asphaltTop + 1.0f, VIEW_W + 16.0f,
+          floorY - asphaltTop, SDL_Color{26, 27, 32, 255});
+
+    // Разметка парковочных мест и мелкий мусор на асфальте.
+    for (int tx = tx0; tx <= tx1; ++tx) {
+        float x = tx * 16.0f;
+        uint32_t h = hash2(tx, 61);
+        if ((h >> 3) % 5 == 0)
+            fillW(x + static_cast<float>(h % 12), asphaltTop + 8.0f +
+                  static_cast<float>((h >> 8) % 24), 1.0f, 1.0f,
+                  SDL_Color{56, 56, 62, 160});
+    }
+    for (float x = 24.0f; x < lvl.w * TILE; x += 64.0f) {
+        fillW(x, floorY - 22.0f, 2.0f, 18.0f, SDL_Color{196, 194, 170, 80});
+        fillW(x - 5.0f, floorY - 5.0f, 12.0f, 2.0f,
+              SDL_Color{196, 194, 170, 55});
+    }
+
+    // Фонари: тёмные столбы с тёплыми лампами.
+    auto lamp = [&](float lx, bool armRight) {
+        float top = floorY - 118.0f;
+        fillW(lx + 2.0f, top, 4.0f, floorY - top, SDL_Color{34, 35, 42, 255});
+        fillW(lx + 2.0f, top, 1.0f, floorY - top, SDL_Color{66, 68, 78, 110});
+        float armX = armRight ? lx + 4.0f : lx - 14.0f;
+        fillW(armX, top, 16.0f, 3.0f, SDL_Color{34, 35, 42, 255});
+        float headX = armRight ? lx + 16.0f : lx - 18.0f;
+        fillW(headX, top - 2.0f, 8.0f, 5.0f, SDL_Color{28, 29, 36, 255});
+        fillW(headX + 1.0f, top + 3.0f, 6.0f, 2.0f,
+              SDL_Color{255, 214, 132, 245});
+        addLight(headX + 4.0f, top + 7.0f, 66.0f,
+                 SDL_Color{255, 198, 110, 255}, 58.0f);
+        addLight(headX + 4.0f, floorY - 8.0f, 34.0f,
+                 SDL_Color{255, 196, 108, 255}, 22.0f);
+    };
+    lamp(104.0f, true);
+    lamp(548.0f, false);
+
+    // Джип у босса.
+    {
+        const float jx = 396.0f;
+        const float jy = floorY - 34.0f;
+
+        fillW(jx, floorY - 3.0f, 78.0f, 3.0f, SDL_Color{0, 0, 0, 90});
+
+        const SDL_Color body{58, 66, 50, 255};
+        const SDL_Color bodyDark{38, 45, 34, 255};
+        const SDL_Color bodyLight{86, 96, 70, 255};
+
+        fillW(jx + 3.0f, jy + 14.0f, 66.0f, 16.0f, body);
+        fillW(jx + 3.0f, jy + 14.0f, 66.0f, 2.0f, bodyLight);
+        fillW(jx + 3.0f, jy + 28.0f, 66.0f, 3.0f, bodyDark);
+        fillW(jx + 2.0f, jy + 10.0f, 22.0f, 7.0f, body);
+        fillW(jx + 2.0f, jy + 10.0f, 22.0f, 1.0f, bodyLight);
+        fillW(jx + 26.0f, jy + 3.0f, 30.0f, 14.0f, body);
+        fillW(jx + 54.0f, jy + 9.0f, 16.0f, 8.0f, body);
+        fillW(jx + 26.0f, jy + 3.0f, 30.0f, 2.0f, bodyLight);
+
+        // Стёкла и стойки кузова.
+        fillW(jx + 30.0f, jy + 5.0f, 11.0f, 9.0f, SDL_Color{78, 104, 116, 255});
+        fillW(jx + 44.0f, jy + 5.0f, 8.0f, 9.0f, SDL_Color{70, 94, 106, 255});
+        fillW(jx + 41.0f, jy + 3.0f, 2.0f, 14.0f, bodyDark);
+        fillW(jx + 31.0f, jy + 6.0f, 3.0f, 3.0f, SDL_Color{132, 158, 166, 140});
+
+        // Колёса.
+        for (float wx : {jx + 8.0f, jx + 52.0f}) {
+            fillW(wx, jy + 26.0f, 14.0f, 14.0f, SDL_Color{22, 22, 25, 255});
+            fillW(wx + 3.0f, jy + 29.0f, 8.0f, 8.0f, SDL_Color{48, 49, 52, 255});
+            fillW(wx + 5.0f, jy + 31.0f, 4.0f, 4.0f, SDL_Color{92, 94, 96, 255});
+        }
+
+        // Фары, бампер и запасное колесо сзади.
+        fillW(jx + 66.0f, jy + 14.0f, 3.0f, 4.0f, SDL_Color{255, 230, 150, 245});
+        fillW(jx + 67.0f, jy + 15.0f, 2.0f, 2.0f, SDL_Color{255, 248, 210, 255});
+        fillW(jx + 2.0f, jy + 24.0f, 68.0f, 3.0f, SDL_Color{30, 31, 34, 255});
+        fillW(jx - 1.0f, jy + 13.0f, 6.0f, 12.0f, SDL_Color{24, 25, 27, 255});
+        fillW(jx, jy + 15.0f, 4.0f, 8.0f, SDL_Color{46, 48, 44, 255});
+        addLight(jx + 68.0f, jy + 16.0f, 30.0f,
+                 SDL_Color{255, 210, 130, 255}, 30.0f);
+    }
+}
+
 // ---------------------------------------------------------------------------
 //  Тайлы
 // ---------------------------------------------------------------------------
@@ -347,6 +576,26 @@ void Game::drawBrick(int x, int y, int tx, int ty)
         return;
     }
 
+    if (levelIndex == 3) {
+        // Парковка: тёмные бетонные блоки ограды.
+        uint32_t bh = hash2(tx, ty);
+        int bv = static_cast<int>(bh % 8);
+        SDL_Color bbase{static_cast<Uint8>(34 + bv),
+                        static_cast<Uint8>(36 + bv),
+                        static_cast<Uint8>(46 + bv), 255};
+        SDL_SetRenderDrawColor(ren, bbase.r, bbase.g, bbase.b, 255);
+        SDL_Rect br{x, y, 16, 16};
+        SDL_RenderFillRect(ren, &br);
+        SDL_SetRenderDrawColor(ren, 20, 22, 30, 255);
+        SDL_RenderDrawLine(ren, x, y + 15, x + 15, y + 15);
+        SDL_RenderDrawLine(ren, x + 15, y, x + 15, y + 15);
+        int boff = (ty % 2 == 0) ? 8 : 0;
+        SDL_RenderDrawLine(ren, x + boff, y, x + boff, y + 7);
+        SDL_SetRenderDrawColor(ren, bbase.r + 24, bbase.g + 24, bbase.b + 26, 70);
+        SDL_RenderDrawLine(ren, x + 1, y + 1, x + 14, y + 1);
+        return;
+    }
+
     uint32_t h = hash2(tx, ty);
     int v = static_cast<int>(h % 12);
     SDL_Color base{static_cast<Uint8>(58 + v), static_cast<Uint8>(39 + v / 2),
@@ -405,6 +654,36 @@ void Game::drawFloorTile(int x, int y, int tx, int ty)
         if ((hash2(tx, ty) >> 4) % 4 == 0) {
             SDL_SetRenderDrawColor(ren, 94, 86, 74, 140);
             SDL_RenderDrawLine(ren, x + 3, y + 4, x + 8, y + 10);
+        }
+        return;
+    }
+
+    if (levelIndex == 3) {
+        // Парковка: тёмный асфальт с белой разметкой.
+        uint32_t fh = hash2(tx, ty);
+        int fv = static_cast<int>(fh % 8);
+        SDL_Color abase{static_cast<Uint8>(40 + fv),
+                        static_cast<Uint8>(40 + fv),
+                        static_cast<Uint8>(46 + fv), 255};
+        SDL_SetRenderDrawColor(ren, abase.r, abase.g, abase.b, 255);
+        SDL_Rect fr{x, y, 16, 16};
+        SDL_RenderFillRect(ren, &fr);
+        SDL_SetRenderDrawColor(ren, 68, 68, 76, 200);
+        SDL_Rect atop{x, y, 16, 2};
+        SDL_RenderFillRect(ren, &atop);
+        SDL_SetRenderDrawColor(ren, 88, 88, 94, 90);
+        SDL_Rect aline{x, y, 16, 1};
+        SDL_RenderFillRect(ren, &aline);
+        if ((fh >> 4) % 4 == 0) {
+            SDL_SetRenderDrawColor(ren, 26, 26, 30, 140);
+            SDL_Rect spot{x + 3 + static_cast<int>(fh % 6), y + 5,
+                          3, 2};
+            SDL_RenderFillRect(ren, &spot);
+        }
+        if (tx % 4 == 0) {
+            SDL_SetRenderDrawColor(ren, 196, 194, 170, 120);
+            SDL_Rect mark{x + 7, y + 4, 2, 12};
+            SDL_RenderFillRect(ren, &mark);
         }
         return;
     }
@@ -493,6 +772,51 @@ void Game::drawTableTile(int x, int y, int tx, int ty)
         SDL_Rect crib{x + 3, y + 9, 10, 1};
         SDL_RenderFillRect(ren, &crib);
         fillCircle(x + 8, y + 8, 1, SDL_Color{190, 150, 84, 255});
+        return;
+    }
+
+    if (levelIndex == 3) {
+        // Парковка: тяжёлый бетонный блок с жёлто-чёрной полосой.
+        uint32_t ch = hash2(tx, ty);
+        int cv = static_cast<int>(ch % 8);
+        SDL_Color cbase{static_cast<Uint8>(92 + cv),
+                        static_cast<Uint8>(90 + cv),
+                        static_cast<Uint8>(84 + cv), 255};
+        SDL_SetRenderDrawColor(ren, cbase.r, cbase.g, cbase.b, 255);
+        SDL_Rect cr{x, y, 16, 16};
+        SDL_RenderFillRect(ren, &cr);
+
+        // Верхняя кромка блока и нижняя тень.
+        if (lvl.at(tx, ty - 1) != 't') {
+            SDL_SetRenderDrawColor(ren, 142, 138, 128, 255);
+            SDL_Rect ctop{x, y, 16, 5};
+            SDL_RenderFillRect(ren, &ctop);
+            SDL_SetRenderDrawColor(ren, 176, 172, 158, 255);
+            SDL_Rect cline{x, y, 16, 1};
+            SDL_RenderFillRect(ren, &cline);
+        }
+        if (lvl.at(tx, ty + 1) != 't') {
+            SDL_SetRenderDrawColor(ren, 54, 52, 50, 255);
+            SDL_Rect cshadow{x, y + 13, 16, 3};
+            SDL_RenderFillRect(ren, &cshadow);
+            // Полосатая предупреждающая лента у основания.
+            for (int k = 0; k < 16; k += 8) {
+                SDL_SetRenderDrawColor(ren, 196, 158, 42, 230);
+                SDL_Rect warn{x + k, y + 8, 4, 5};
+                SDL_RenderFillRect(ren, &warn);
+                SDL_SetRenderDrawColor(ren, 34, 32, 30, 230);
+                SDL_Rect warn2{x + k + 4, y + 8, 4, 5};
+                SDL_RenderFillRect(ren, &warn2);
+            }
+        }
+
+        SDL_SetRenderDrawColor(ren, 70, 68, 64, 180);
+        SDL_RenderDrawLine(ren, x, y + 7, x + 15, y + 7);
+        SDL_SetRenderDrawColor(ren, 66, 64, 62, 160);
+        SDL_RenderDrawLine(ren, x + 15, y, x + 15, y + 15);
+        SDL_SetRenderDrawColor(ren, 132, 128, 118, 130);
+        SDL_Rect cchip{x + 3, y + 10, 4, 1};
+        SDL_RenderFillRect(ren, &cchip);
         return;
     }
 

@@ -10,6 +10,7 @@ void Game::drawMonsters()
         if (m.type == 0) drawSpider(m);
         else if (m.type == 1) drawBatThug(m);
         else if (m.type == 2) drawPistolThug(m);
+        else if (m.type == 4) drawBoss(m);
         else drawDoberman(m);
     }
 }
@@ -323,6 +324,116 @@ void Game::drawDoberman(const Monster& m)
 
     if (m.hurtFlash > 0.0f) {
         SDL_SetRenderDrawColor(ren, 255, 230, 225, 85);
+        SDL_Rect flash{sx(b.x) + 1, sy(b.y) + 1,
+                       static_cast<int>(b.w) - 2, static_cast<int>(b.h) - 2};
+        SDL_RenderFillRect(ren, &flash);
+    }
+}
+
+void Game::drawBoss(const Monster& m)
+{
+    const Body& b = m.b;
+    if (b.x + b.w + 90.0f < camX || b.x - 90.0f > camX + VIEW_W) return;
+    if (b.y + b.h < camY - 40.0f || b.y > camY + VIEW_H + 40.0f) return;
+
+    const float sc = b.w / 80.0f;   // босс ровно в восемь Колянов
+    const int dir = b.facing;
+    const int step = (static_cast<int>(m.anim * 2.0f) % 2 == 0) ? 1 : 0;
+
+    auto part = [&](float rx, float ry, float rw, float rh, SDL_Color c) {
+        fillW(b.x + rx * sc, b.y + ry * sc, rw * sc, rh * sc, c);
+    };
+
+    const SDL_Color skin{214, 168, 132, 255};
+    const SDL_Color skinShade{182, 138, 106, 255};
+    const SDL_Color jacket{48, 46, 56, 255};
+    const SDL_Color jacketDark{32, 30, 38, 255};
+    const SDL_Color pants{40, 42, 50, 255};
+    const SDL_Color shoe{22, 21, 24, 255};
+    const SDL_Color gold{204, 166, 72, 255};
+    const SDL_Color hair{36, 32, 30, 255};
+    const SDL_Color cap{28, 28, 34, 255};
+    const SDL_Color wood{150, 98, 48, 255};
+    const SDL_Color woodLight{196, 140, 74, 255};
+
+    // Тень под гигантом.
+    part(-4.0f, 234.0f, 88.0f, 5.0f, SDL_Color{0, 0, 0, 90});
+
+    // Ноги и ботинки.
+    part(10.0f + step * 2.0f, 152.0f, 24.0f, 78.0f, pants);
+    part(46.0f - step * 2.0f, 152.0f, 24.0f, 78.0f, pants);
+    part(10.0f + step * 2.0f, 152.0f, 4.0f, 78.0f, jacketDark);
+    part(46.0f - step * 2.0f, 152.0f, 4.0f, 78.0f, jacketDark);
+    part(6.0f + step * 2.0f, 226.0f, 30.0f, 10.0f, shoe);
+    part(44.0f - step * 2.0f, 226.0f, 30.0f, 10.0f, shoe);
+
+    // Куртка, пояс и золотая цепь.
+    part(4.0f, 52.0f, 72.0f, 104.0f, jacket);
+    part(4.0f, 52.0f, 5.0f, 104.0f, jacketDark);
+    part(70.0f, 52.0f, 6.0f, 104.0f, SDL_Color{58, 56, 66, 255});
+    part(4.0f, 144.0f, 72.0f, 8.0f, jacketDark);
+    part(4.0f, 54.0f, 72.0f, 3.0f, SDL_Color{66, 64, 76, 255});
+    part(28.0f, 60.0f, 26.0f, 4.0f, gold);
+    part(32.0f, 64.0f, 18.0f, 3.0f, SDL_Color{160, 124, 48, 255});
+    part(38.0f, 67.0f, 6.0f, 8.0f, gold);
+    part(38.0f, 75.0f, 6.0f, 3.0f, SDL_Color{236, 206, 96, 255});
+
+    // Голова, шея и кепка.
+    part(24.0f, 46.0f, 32.0f, 10.0f, skinShade);
+    part(12.0f, 2.0f, 56.0f, 52.0f, skin);
+    part(12.0f, 38.0f, 56.0f, 16.0f, skinShade);
+    part(10.0f, -6.0f, 60.0f, 16.0f, hair);
+    part(8.0f, -8.0f, 64.0f, 8.0f, cap);
+    part(dir > 0 ? 54.0f : 4.0f, -4.0f, 22.0f, 6.0f, cap);
+    // Ухо со стороны затылка.
+    part(dir > 0 ? 10.0f : 62.0f, 18.0f, 8.0f, 16.0f, skinShade);
+    part(dir > 0 ? 12.0f : 64.0f, 22.0f, 3.0f, 8.0f, hair);
+
+    // Красные глаза, злой прищур и золотой зуб.
+    float eyeX = (dir > 0) ? 44.0f : 22.0f;
+    part(eyeX, 18.0f, 10.0f, 7.0f, SDL_Color{244, 66, 58, 255});
+    part(eyeX + (dir > 0 ? -3.0f : 7.0f), 22.0f, 10.0f, 7.0f,
+         SDL_Color{220, 44, 46, 255});
+    part(eyeX, 15.0f, 14.0f, 3.0f, hair);
+    part(eyeX, 25.0f, 12.0f, 2.0f, SDL_Color{120, 50, 48, 255});
+    part(30.0f, 40.0f, 24.0f, 5.0f, SDL_Color{96, 44, 46, 255});
+    part(40.0f, 40.0f, 4.0f, 4.0f, gold);
+
+    // Руки: дальняя тёмная, ближняя держит биту.
+    if (dir > 0) {
+        part(-2.0f, 64.0f, 14.0f, 62.0f, jacketDark);
+        part(62.0f, 66.0f, 18.0f, 54.0f, jacket);
+        part(66.0f, 112.0f, 12.0f, 12.0f, skin);
+    } else {
+        part(68.0f, 64.0f, 14.0f, 62.0f, jacketDark);
+        part(0.0f, 66.0f, 18.0f, 54.0f, jacket);
+        part(2.0f, 112.0f, 12.0f, 12.0f, skin);
+    }
+
+    // Огромная бита.
+    if (dir > 0) {
+        part(68.0f, 96.0f, 22.0f, 7.0f, SDL_Color{96, 58, 30, 255});
+        part(88.0f, 84.0f, 46.0f, 24.0f, wood);
+        part(88.0f, 84.0f, 46.0f, 7.0f, woodLight);
+        part(128.0f, 87.0f, 8.0f, 18.0f, woodLight);
+    } else {
+        part(-10.0f, 96.0f, 22.0f, 7.0f, SDL_Color{96, 58, 30, 255});
+        part(-54.0f, 84.0f, 46.0f, 24.0f, wood);
+        part(-54.0f, 84.0f, 46.0f, 7.0f, woodLight);
+        part(-62.0f, 87.0f, 8.0f, 18.0f, woodLight);
+    }
+
+    // Тяжёлое дыхание и красная аура.
+    int breath = (static_cast<int>(m.anim * 3.0f) % 2 == 0) ? 0 : 1;
+    part(26.0f, 58.0f + breath, 28.0f, 2.0f, SDL_Color{70, 68, 80, 120});
+    addLight(b.x + b.w * 0.5f, b.y + b.h * 0.4f, 78.0f,
+             SDL_Color{190, 54, 66, 255}, 26.0f);
+    if (!m.dead)
+        addLight(b.x + (dir > 0 ? b.w - 14.0f : 14.0f),
+                 b.y + 22.0f, 26.0f, SDL_Color{255, 70, 54, 255}, 22.0f);
+
+    if (m.hurtFlash > 0.0f) {
+        SDL_SetRenderDrawColor(ren, 255, 228, 220, 80);
         SDL_Rect flash{sx(b.x) + 1, sy(b.y) + 1,
                        static_cast<int>(b.w) - 2, static_cast<int>(b.h) - 2};
         SDL_RenderFillRect(ren, &flash);
