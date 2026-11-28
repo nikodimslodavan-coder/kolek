@@ -21,6 +21,11 @@ void Game::drawWallpaper()
         drawParkingWallpaper();
         return;
     }
+    // Пятый — заброшенная лесопилка.
+    if (levelIndex == 4) {
+        drawSawmillWallpaper();
+        return;
+    }
 
     int tx0 = std::max(0, static_cast<int>(camX / TILE) - 1);
     int tx1 = std::min(lvl.w - 1, static_cast<int>((camX + VIEW_W) / TILE) + 1);
@@ -512,6 +517,261 @@ void Game::drawParkingWallpaper()
     }
 }
 
+void Game::drawSawmillWallpaper()
+{
+    // Заброшенная лесопилка: ночной лес за проломами в дощатой стене,
+    // ржавые пилы, штабели брёвен, конвейер и пыль в лунном свете.
+    const float floorY = (lvl.h - 2) * TILE;   // ряд 20 — дощатый пол
+    const float wallTop = 20.0f;
+    const float windowTop = 52.0f;
+    const float windowBottom = 158.0f;
+
+    int tx0 = std::max(0, static_cast<int>(camX / TILE) - 1);
+    int tx1 = std::min(lvl.w - 1, static_cast<int>((camX + VIEW_W) / TILE) + 1);
+
+    // Ночное небо и далёкий лес: они видны сквозь проломы в стене.
+    for (int i = 0; i < 12; ++i) {
+        SDL_Color sky{static_cast<Uint8>(8 + i * 2),
+                      static_cast<Uint8>(14 + i * 3),
+                      static_cast<Uint8>(26 + i * 3), 255};
+        fillW(camX - 8.0f, i * floorY / 12.0f, VIEW_W + 16.0f,
+              floorY / 12.0f + 1.0f, sky);
+    }
+
+    // Луна и редкие звёзды над крышей.
+    fillCircle(sx(96.0f), sy(40.0f), 12, SDL_Color{206, 214, 196, 24});
+    fillCircle(sx(96.0f), sy(40.0f), 7, SDL_Color{222, 226, 204, 220});
+    fillCircle(sx(94.0f), sy(38.0f), 5, SDL_Color{240, 238, 216, 235});
+    for (int tx = tx0; tx <= tx1; ++tx) {
+        for (int k = 0; k < 2; ++k) {
+            uint32_t sh = hash2(tx * 5 + k, 47);
+            if (sh % 7 != 0) continue;
+            fillW(tx * 16.0f + static_cast<float>((sh >> 3) % 16),
+                  8.0f + static_cast<float>((sh >> 8) % 58), 1.0f, 1.0f,
+                  SDL_Color{208, 218, 244,
+                            static_cast<Uint8>(80 + (sh >> 15) % 120)});
+        }
+    }
+
+    // Силуэты сосен за стеной.
+    for (int tx = tx0; tx <= tx1; ++tx) {
+        uint32_t th = hash2(tx, 73);
+        if ((th >> 4) % 3 != 0) continue;
+        float treeX = tx * 16.0f + static_cast<float>(th % 12);
+        float treeH = 54.0f + static_cast<float>((th >> 7) % 74);
+        float baseY = windowBottom + 8.0f;
+        fillW(treeX + 7.0f, baseY - treeH, 2.0f, treeH,
+              SDL_Color{12, 20, 20, 255});
+        fillTriangle(sx(treeX), sy(baseY - treeH * 0.42f),
+                     sx(treeX + 16.0f), sy(baseY - treeH * 0.42f),
+                     sx(treeX + 8.0f), sy(baseY - treeH),
+                     SDL_Color{14, 28, 24, 255});
+        fillTriangle(sx(treeX + 1.0f), sy(baseY - treeH * 0.18f),
+                     sx(treeX + 15.0f), sy(baseY - treeH * 0.18f),
+                     sx(treeX + 8.0f), sy(baseY - treeH * 0.62f),
+                     SDL_Color{13, 25, 22, 255});
+    }
+
+    // Дощатая стена с проломами: доски, щели и следы гнили.
+    auto windowAt = [](int tx) {
+        int m = ((tx % 36) + 36) % 36;
+        return m >= 10 && m <= 17;
+    };
+    for (int tx = tx0; tx <= tx1; ++tx) {
+        float x = tx * 16.0f;
+        uint32_t h = hash2(tx, 91);
+        if (windowAt(tx)) {
+            // Рама пролома и осколки стекла.
+            fillW(x, windowTop, 16.0f, 5.0f, SDL_Color{38, 27, 19, 255});
+            fillW(x, windowBottom, 16.0f, 6.0f, SDL_Color{34, 24, 17, 255});
+            if (tx % 36 == 10)
+                fillW(x, windowTop, 3.0f, windowBottom - windowTop + 6.0f,
+                      SDL_Color{30, 21, 15, 255});
+            if (tx % 36 == 17)
+                fillW(x + 13.0f, windowTop, 3.0f,
+                      windowBottom - windowTop + 6.0f,
+                      SDL_Color{30, 21, 15, 255});
+            if ((h >> 5) % 4 == 0) {
+                fillTriangle(sx(x + 4.0f), sy(windowBottom - 1.0f),
+                             sx(x + 9.0f), sy(windowBottom - 1.0f),
+                             sx(x + 7.0f), sy(windowBottom - 18.0f),
+                             SDL_Color{96, 120, 124, 120});
+            }
+            continue;
+        }
+
+        int v = static_cast<int>(h % 10);
+        SDL_Color plank{static_cast<Uint8>(52 + v),
+                        static_cast<Uint8>(38 + v / 2),
+                        static_cast<Uint8>(27 + v / 3), 255};
+        fillW(x, wallTop, 16.0f, floorY - wallTop, plank);
+        // Вертикальный стык досок и светлая кромка.
+        fillW(x + 15.0f, wallTop, 1.0f, floorY - wallTop,
+              SDL_Color{24, 17, 13, 255});
+        fillW(x, wallTop, 16.0f, 1.0f, SDL_Color{82, 60, 40, 90});
+
+        // Горизонтальные стыки, сучки и потёки.
+        if ((h >> 4) % 5 == 0)
+            fillW(x, 76.0f + static_cast<float>(h % 70), 16.0f, 1.0f,
+                  SDL_Color{28, 20, 15, 190});
+        if ((h >> 9) % 7 == 0)
+            fillCircle(sx(x + 4.0f + static_cast<float>(h % 8)),
+                       sy(40.0f + static_cast<float>((h >> 6) % 120)),
+                       1, SDL_Color{26, 18, 13, 200});
+        if ((h >> 12) % 11 == 0)
+            fillW(x + 5.0f, 120.0f + static_cast<float>(h % 60), 2.0f,
+                  16.0f, SDL_Color{24, 18, 14, 90});
+        // Дыры, сквозь которые тоже проглядывает лес.
+        if ((h >> 17) % 23 == 0)
+            fillW(x + 4.0f, 96.0f + static_cast<float>(h % 80), 6.0f, 11.0f,
+                  SDL_Color{12, 20, 20, 255});
+    }
+
+    // Силовые балки и стойки каркаса.
+    fillW(camX - 8.0f, wallTop, VIEW_W + 16.0f, 5.0f,
+          SDL_Color{38, 27, 18, 255});
+    fillW(camX - 8.0f, wallTop, VIEW_W + 16.0f, 1.0f,
+          SDL_Color{92, 66, 42, 120});
+    fillW(camX - 8.0f, windowBottom + 6.0f, VIEW_W + 16.0f, 4.0f,
+          SDL_Color{34, 24, 16, 220});
+    for (int tx = tx0; tx <= tx1; ++tx) {
+        if (tx % 12 != 3) continue;
+        float x = tx * 16.0f;
+        fillW(x, wallTop, 6.0f, floorY - wallTop, SDL_Color{35, 25, 17, 255});
+        fillW(x + 1.0f, wallTop, 2.0f, floorY - wallTop,
+              SDL_Color{66, 46, 30, 255});
+        fillW(x + 5.0f, wallTop, 1.0f, floorY - wallTop,
+              SDL_Color{20, 14, 10, 255});
+    }
+
+    // Крыша: тёмные металлические листы и свисающие цепи.
+    fillW(camX - 8.0f, 0.0f, VIEW_W + 16.0f, 16.0f,
+          SDL_Color{17, 17, 20, 255});
+    for (int tx = tx0; tx <= tx1; ++tx) {
+        fillW(tx * 16.0f, 0.0f, 1.0f, 16.0f, SDL_Color{32, 33, 37, 255});
+        if (tx % 7 == 2)
+            fillW(tx * 16.0f, 0.0f, 16.0f, 3.0f, SDL_Color{42, 43, 47, 255});
+    }
+    for (int tx = tx0; tx <= tx1; ++tx) {
+        uint32_t ch = hash2(tx, 113);
+        if ((ch >> 4) % 9 != 0) continue;
+        float cx = tx * 16.0f + 8.0f;
+        float len = 22.0f + static_cast<float>((ch >> 8) % 70);
+        SDL_SetRenderDrawColor(ren, 40, 40, 42, 210);
+        SDL_RenderDrawLine(ren, sx(cx), sy(15.0f), sx(cx), sy(15.0f + len));
+        for (float ly = 18.0f; ly < 15.0f + len; ly += 7.0f) {
+            SDL_SetRenderDrawColor(ren, 52, 52, 54, 220);
+            SDL_Rect link{static_cast<int>(sx(cx)) - 1,
+                          static_cast<int>(sy(ly)), 3, 4};
+            SDL_RenderDrawRect(ren, &link);
+        }
+    }
+
+    // Ржавая дисковая пила — главный силуэт цеха.
+    auto blade = [&](float bx, float by, float radius) {
+        int cx = sx(bx);
+        int cy = sy(by);
+        int ir = static_cast<int>(radius);
+        fillCircle(cx, cy, ir, SDL_Color{46, 48, 48, 255});
+        fillCircle(cx, cy, ir - 3, SDL_Color{78, 80, 76, 255});
+        fillCircle(cx, cy, ir - 10, SDL_Color{104, 106, 98, 255});
+        for (int i = 0; i < 16; ++i) {
+            float a = static_cast<float>(i) * 6.2831853f / 16.0f;
+            float a2 = a + 0.11f;
+            fillTriangle(cx + static_cast<int>(std::cos(a) * (ir - 2)),
+                         cy + static_cast<int>(std::sin(a) * (ir - 2)),
+                         cx + static_cast<int>(std::cos(a2) * (ir - 2)),
+                         cy + static_cast<int>(std::sin(a2) * (ir - 2)),
+                         cx + static_cast<int>(std::cos(a + 0.055f) *
+                                              (ir + 7)),
+                         cy + static_cast<int>(std::sin(a + 0.055f) *
+                                              (ir + 7)),
+                         SDL_Color{58, 60, 58, 255});
+        }
+        fillCircle(cx, cy, 7, SDL_Color{132, 82, 46, 255});
+        fillCircle(cx, cy, 4, SDL_Color{62, 44, 32, 255});
+        SDL_SetRenderDrawColor(ren, 116, 72, 40, 150);
+        SDL_RenderDrawLine(ren, cx - ir + 8, cy + 6, cx + ir - 12, cy + 14);
+        SDL_RenderDrawLine(ren, cx - 6, cy - ir + 10, cx + 8, cy + ir - 12);
+    };
+    blade(712.0f, floorY - 108.0f, 44.0f);
+    blade(1304.0f, floorY - 104.0f, 38.0f);
+    addLight(712.0f, floorY - 108.0f, 78.0f,
+             SDL_Color{255, 196, 118, 255}, 22.0f);
+
+    // Штабель брёвен слева и ржавый конвейер справа.
+    auto logPile = [&](float px, float py) {
+        for (int row = 0; row < 3; ++row) {
+            for (int i = 0; i < 4 - row; ++i) {
+                float lx = px + i * 26.0f + row * 13.0f;
+                float ly = py - row * 17.0f;
+                fillW(lx, ly, 25.0f, 15.0f, SDL_Color{62, 43, 28, 255});
+                fillW(lx, ly, 25.0f, 3.0f, SDL_Color{92, 66, 42, 255});
+                SDL_SetRenderDrawColor(ren, 40, 28, 18, 255);
+                SDL_Rect cut{static_cast<int>(sx(lx + 20.0f)),
+                             static_cast<int>(sy(ly + 1.0f)), 5, 13};
+                SDL_RenderFillRect(ren, &cut);
+                fillCircle(sx(lx + 22.0f), sy(ly + 7.0f), 3,
+                           SDL_Color{142, 106, 66, 255});
+                fillCircle(sx(lx + 22.0f), sy(ly + 7.0f), 1,
+                           SDL_Color{92, 64, 38, 255});
+            }
+        }
+    };
+    logPile(238.0f, floorY - 18.0f);
+    logPile(1178.0f, floorY - 52.0f);
+
+    {
+        float cx = 986.0f;
+        float cy = floorY - 30.0f;
+        fillW(cx, cy, 190.0f, 9.0f, SDL_Color{62, 46, 34, 255});
+        fillW(cx, cy, 190.0f, 2.0f, SDL_Color{96, 70, 44, 255});
+        fillW(cx, cy + 9.0f, 190.0f, 4.0f, SDL_Color{36, 28, 22, 255});
+        for (int i = 0; i < 8; ++i) {
+            float rx = cx + 8.0f + i * 23.0f;
+            fillCircle(sx(rx), sy(cy + 5.0f), 4, SDL_Color{48, 50, 50, 255});
+            fillCircle(sx(rx), sy(cy + 5.0f), 1, SDL_Color{130, 88, 54, 255});
+        }
+        SDL_SetRenderDrawColor(ren, 86, 62, 40, 220);
+        SDL_RenderDrawLine(ren, sx(cx + 6.0f), sy(cy - 8.0f),
+                           sx(cx + 184.0f), sy(cy - 20.0f));
+        SDL_RenderDrawLine(ren, sx(cx + 6.0f), sy(cy - 8.0f),
+                           sx(cx + 12.0f), sy(cy + 8.0f));
+    }
+
+    // Лампа над пилой и пыль в лунном свете.
+    fillW(636.0f, 18.0f, 2.0f, 34.0f, SDL_Color{32, 32, 34, 255});
+    fillTriangle(sx(622.0f), sy(52.0f), sx(652.0f), sy(52.0f),
+                 sx(637.0f), sy(63.0f), SDL_Color{58, 48, 34, 255});
+    fillW(634.0f, 62.0f, 6.0f, 3.0f, SDL_Color{255, 210, 132, 235});
+    addLight(637.0f, 66.0f, 90.0f, SDL_Color{255, 190, 112, 255}, 46.0f);
+
+    for (int tx = tx0; tx <= tx1; ++tx) {
+        uint32_t dh = hash2(tx, 131);
+        if ((dh >> 5) % 4 != 0) continue;
+        for (int k = 0; k < 3; ++k) {
+            float dx = tx * 16.0f + static_cast<float>((dh >> (k * 3)) % 16);
+            float dy = 48.0f + static_cast<float>((dh >> (k * 5 + 2)) % 150);
+            fillW(dx, dy, 1.0f, 1.0f,
+                  SDL_Color{255, 228, 170,
+                            static_cast<Uint8>(30 + (dh >> 9) % 50)});
+        }
+    }
+
+    // Земля под полом и древесная труха у стен.
+    fillW(camX - 8.0f, floorY, VIEW_W + 16.0f, lvl.h * TILE - floorY,
+          SDL_Color{18, 15, 14, 255});
+    fillW(camX - 8.0f, floorY - 4.0f, VIEW_W + 16.0f, 4.0f,
+          SDL_Color{38, 30, 22, 220});
+    for (int tx = tx0; tx <= tx1; ++tx) {
+        uint32_t sh = hash2(tx, 151);
+        if ((sh >> 4) % 3 != 0) continue;
+        float sx0 = tx * 16.0f + static_cast<float>(sh % 13);
+        fillW(sx0, floorY - 4.0f, 3.0f + static_cast<float>(sh % 4), 1.0f,
+              SDL_Color{112, 90, 60, 180});
+    }
+}
+
 // ---------------------------------------------------------------------------
 //  Тайлы
 // ---------------------------------------------------------------------------
@@ -598,6 +858,33 @@ void Game::drawBrick(int x, int y, int tx, int ty)
         SDL_RenderDrawLine(ren, x + boff, y, x + boff, y + 7);
         SDL_SetRenderDrawColor(ren, bbase.r + 24, bbase.g + 24, bbase.b + 26, 70);
         SDL_RenderDrawLine(ren, x + 1, y + 1, x + 14, y + 1);
+        return;
+    }
+
+    if (levelIndex == 4) {
+        // Лесопилка: тёмные доски с мхом и ржавыми гвоздями.
+        uint32_t bh = hash2(tx, ty);
+        int bv = static_cast<int>(bh % 10);
+        SDL_Color bbase{static_cast<Uint8>(46 + bv),
+                        static_cast<Uint8>(35 + bv / 2),
+                        static_cast<Uint8>(26 + bv / 3), 255};
+        SDL_SetRenderDrawColor(ren, bbase.r, bbase.g, bbase.b, 255);
+        SDL_Rect br{x, y, 16, 16};
+        SDL_RenderFillRect(ren, &br);
+        SDL_SetRenderDrawColor(ren, 24, 17, 12, 255);
+        SDL_RenderDrawLine(ren, x, y + 15, x + 15, y + 15);
+        SDL_RenderDrawLine(ren, x + 15, y, x + 15, y + 15);
+        SDL_SetRenderDrawColor(ren, bbase.r + 24, bbase.g + 20, bbase.b + 12, 80);
+        SDL_RenderDrawLine(ren, x + 1, y + 1, x + 14, y + 1);
+        if ((bh >> 5) % 5 == 0) {
+            SDL_SetRenderDrawColor(ren, 52, 72, 40, 140);
+            SDL_Rect moss{x + 2, y + 9 + static_cast<int>(bh % 4), 7, 3};
+            SDL_RenderFillRect(ren, &moss);
+        }
+        if ((bh >> 9) % 3 == 0)
+            fillCircle(x + 4 + static_cast<int>(bh % 8),
+                       y + 4 + static_cast<int>((bh >> 3) % 8), 1,
+                       SDL_Color{28, 22, 16, 220});
         return;
     }
 
@@ -690,6 +977,32 @@ void Game::drawFloorTile(int x, int y, int tx, int ty)
             SDL_Rect mark{x + 7, y + 4, 2, 12};
             SDL_RenderFillRect(ren, &mark);
         }
+        return;
+    }
+
+    if (levelIndex == 4) {
+        // Лесопилка: широкие доски пола, стыки и древесная труха.
+        uint32_t fh = hash2(tx, ty);
+        int fv = static_cast<int>(fh % 8);
+        SDL_Color fbase{static_cast<Uint8>(54 + fv),
+                        static_cast<Uint8>(41 + fv / 2),
+                        static_cast<Uint8>(29 + fv / 3), 255};
+        SDL_SetRenderDrawColor(ren, fbase.r, fbase.g, fbase.b, 255);
+        SDL_Rect fr{x, y, 16, 16};
+        SDL_RenderFillRect(ren, &fr);
+        SDL_SetRenderDrawColor(ren, 26, 19, 14, 255);
+        SDL_RenderDrawLine(ren, x, y + 15, x + 15, y + 15);
+        SDL_RenderDrawLine(ren, x + 15, y, x + 15, y + 15);
+        SDL_SetRenderDrawColor(ren, fbase.r + 28, fbase.g + 20, fbase.b + 12, 90);
+        SDL_RenderDrawLine(ren, x + 1, y + 1, x + 14, y + 1);
+        if ((fh >> 5) % 4 == 0) {
+            SDL_SetRenderDrawColor(ren, 30, 22, 15, 200);
+            SDL_Rect seam{x + 4 + static_cast<int>(fh % 7), y + 5, 1, 10};
+            SDL_RenderFillRect(ren, &seam);
+        }
+        if ((fh >> 9) % 5 == 0)
+            fillW(x + 2.0f + static_cast<float>(fh % 10), y + 9.0f,
+                  3.0f, 1.0f, SDL_Color{128, 104, 70, 150});
         return;
     }
 
@@ -825,6 +1138,33 @@ void Game::drawTableTile(int x, int y, int tx, int ty)
         return;
     }
 
+    if (levelIndex == 4) {
+        // Лесопилка: штабель брёвен с торцами и корой.
+        uint32_t lh = hash2(tx, ty);
+        SDL_SetRenderDrawColor(ren, 58, 40, 26, 255);
+        SDL_Rect lr{x, y, 16, 16};
+        SDL_RenderFillRect(ren, &lr);
+        if (lvl.at(tx, ty - 1) != 't') {
+            SDL_SetRenderDrawColor(ren, 92, 66, 42, 255);
+            SDL_Rect ltop{x, y, 16, 4};
+            SDL_RenderFillRect(ren, &ltop);
+        }
+        if (lvl.at(tx, ty + 1) != 't') {
+            SDL_SetRenderDrawColor(ren, 30, 20, 13, 255);
+            SDL_Rect lbot{x, y + 13, 16, 3};
+            SDL_RenderFillRect(ren, &lbot);
+        }
+        SDL_SetRenderDrawColor(ren, 36, 24, 15, 220);
+        SDL_RenderDrawLine(ren, x, y + 7 + static_cast<int>(lh % 3),
+                           x + 15, y + 7 + static_cast<int>(lh % 3));
+        fillCircle(x + 11, y + 5, 3, SDL_Color{146, 108, 66, 255});
+        fillCircle(x + 11, y + 5, 1, SDL_Color{94, 64, 38, 255});
+        SDL_SetRenderDrawColor(ren, 44, 58, 36, 150);
+        SDL_Rect lmoss{x + 2, y + 10, 5, 2};
+        SDL_RenderFillRect(ren, &lmoss);
+        return;
+    }
+
     SDL_SetRenderDrawColor(ren, 76, 47, 30, 255);
     SDL_Rect r{x, y, 16, 16};
     SDL_RenderFillRect(ren, &r);
@@ -935,6 +1275,38 @@ void Game::drawStepTile(int x, int y, int tx, int ty)
         }
         if (lvl.at(tx + 1, ty) != 'S') {
             SDL_SetRenderDrawColor(ren, 54, 58, 60, 255);
+            SDL_Rect scap{x + 14, y, 2, 10};
+            SDL_RenderFillRect(ren, &scap);
+        }
+        return;
+    }
+
+    if (levelIndex == 4) {
+        // Лесопилка: грубая доска с ржавыми гвоздями и щепой.
+        SDL_SetRenderDrawColor(ren, 30, 21, 14, 255);
+        SDL_Rect sbase{x, y + 7, 16, 3};
+        SDL_RenderFillRect(ren, &sbase);
+        SDL_SetRenderDrawColor(ren, 86, 58, 36, 255);
+        SDL_Rect sboard{x, y, 16, 7};
+        SDL_RenderFillRect(ren, &sboard);
+        SDL_SetRenderDrawColor(ren, 132, 92, 54, 255);
+        SDL_Rect stop{x, y, 16, 2};
+        SDL_RenderFillRect(ren, &stop);
+        SDL_SetRenderDrawColor(ren, 48, 32, 20, 255);
+        SDL_Rect slow{x, y + 6, 16, 2};
+        SDL_RenderFillRect(ren, &slow);
+        SDL_SetRenderDrawColor(ren, 28, 20, 14, 255);
+        SDL_Rect sn1{x + 3, y + 3, 1, 1};
+        SDL_Rect sn2{x + 11, y + 3, 1, 1};
+        SDL_RenderFillRect(ren, &sn1);
+        SDL_RenderFillRect(ren, &sn2);
+        if (lvl.at(tx - 1, ty) != 'S') {
+            SDL_SetRenderDrawColor(ren, 40, 27, 17, 255);
+            SDL_Rect scap{x, y, 2, 10};
+            SDL_RenderFillRect(ren, &scap);
+        }
+        if (lvl.at(tx + 1, ty) != 'S') {
+            SDL_SetRenderDrawColor(ren, 40, 27, 17, 255);
             SDL_Rect scap{x + 14, y, 2, 10};
             SDL_RenderFillRect(ren, &scap);
         }
