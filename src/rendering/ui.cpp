@@ -72,6 +72,15 @@ void Game::drawHUD()
         fillTriangle(144, 7, 141, 11, 144, 15, SDL_Color{255, 232, 160, 255});
         pixfont::drawText(ren, 151, 9, std::to_string(score), 1,
                           SDL_Color{255, 234, 172, 255}, false);
+
+        // После победы над боссом путь лежит к джипу.
+        if (bossDefeated) {
+            float pulse = 0.5f + 0.5f * std::sin(timeSec * 5.0f);
+            pixfont::drawTextCentered(
+                ren, VIEW_W / 2, 26, "К ДЖИПУ!", 1,
+                SDL_Color{255, 214, 130,
+                          static_cast<Uint8>(170 + 70 * pulse)});
+        }
     } else {
         // Верхний левый блок: кубки и очки в одной тонкой рамке.
         bool allCups = cupsGot >= static_cast<int>(cups.size());
@@ -690,7 +699,7 @@ void Game::drawWinScreen()
                               bossWin ? "БОСС ПОВЕРЖЕН!" : "КОЛЯН ВЫБРАЛСЯ!", 3,
                               SDL_Color{255, 226, 140, 255});
     pixfont::drawTextCentered(ren, VIEW_W / 2, 124,
-                              bossWin ? "ПАРКОВКА ПЕРЕД «ДАЙМОНДОМ» СВОБОДНА"
+                              bossWin ? "КОЛЯН УЕХАЛ НА ДЖИПЕ"
                                       : "ИЗ АПАРТАМЕНТОВ «ДАЙМОНД»", 2,
                               SDL_Color{230, 220, 200, 255});
 

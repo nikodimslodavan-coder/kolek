@@ -463,9 +463,9 @@ void Game::drawParkingWallpaper()
     lamp(104.0f, true);
     lamp(548.0f, false);
 
-    // Джип у босса.
+    // Джип у босса — после победы он играет роль двери.
     {
-        const float jx = 396.0f;
+        const float jx = JEEP_X;
         const float jy = floorY - 34.0f;
 
         fillW(jx, floorY - 3.0f, 78.0f, 3.0f, SDL_Color{0, 0, 0, 90});
@@ -504,6 +504,11 @@ void Game::drawParkingWallpaper()
         fillW(jx, jy + 15.0f, 4.0f, 8.0f, SDL_Color{46, 48, 44, 255});
         addLight(jx + 68.0f, jy + 16.0f, 30.0f,
                  SDL_Color{255, 210, 130, 255}, 30.0f);
+        if (bossDefeated) {
+            float pulse = 0.5f + 0.5f * std::sin(timeSec * 4.0f);
+            addLight(jx + JEEP_W * 0.5f, jy + 12.0f, 86.0f,
+                     SDL_Color{255, 214, 130, 255}, 48.0f + 38.0f * pulse);
+        }
     }
 }
 
