@@ -8,6 +8,7 @@ namespace kolek {
 void Game::drawHUD()
 {
     const bool bossLevel = (levelIndex == 3);
+    const bool sawmillLevel = (levelIndex == 4);
 
     if (bossLevel) {
         // На парковке вместо кубков — полоса здоровья босса.
@@ -127,8 +128,10 @@ void Game::drawHUD()
     }
     std::string floorText = bossLevel
         ? "ПАРКОВКА"
-        : "ЭТАЖ " + std::to_string(levelIndex + 1) + "/" +
-              std::to_string(LEVEL_COUNT);
+        : sawmillLevel
+              ? "ЛЕСОПИЛКА"
+              : "ЭТАЖ " + std::to_string(levelIndex + 1) + "/" +
+                    std::to_string(LEVEL_COUNT);
     pixfont::drawTextCentered(ren, VIEW_W / 2, 13, floorText, 1,
                               SDL_Color{214, 204, 184, 220}, false);
 
@@ -646,26 +649,26 @@ void Game::drawLevelSelectScreen()
                               "СЕКРЕТНАЯ ДВЕРЬ — ТОЛЬКО ДЛЯ РАЗРАБОТКИ", 1,
                               SDL_Color{150, 140, 128, 255});
 
-    static const char* const levelNames[4] = {
-        "ОСОБНЯК", "ТЕХЭТАЖ", "ВЕСТИБЮЛЬ", "ПАРКОВКА"
+    static const char* const levelNames[LEVEL_COUNT] = {
+        "ОСОБНЯК", "ТЕХЭТАЖ", "ВЕСТИБЮЛЬ", "ПАРКОВКА", "ЛЕСОПИЛКА"
     };
     for (int i = 0; i < LEVEL_COUNT; ++i) {
         bool sel = (i == levelSelectIndex);
-        int y = 78 + i * 29;
+        int y = 72 + i * 26;
 
         if (sel) {
             SDL_SetRenderDrawColor(ren, 30, 74, 88, 220);
-            SDL_Rect hl{VIEW_W / 2 - 150, y - 6, 300, 25};
+            SDL_Rect hl{VIEW_W / 2 - 150, y - 6, 300, 23};
             SDL_RenderFillRect(ren, &hl);
             SDL_SetRenderDrawColor(ren, 100, 224, 240, 255);
             SDL_Rect hlTop{VIEW_W / 2 - 150, y - 6, 300, 1};
-            SDL_Rect hlBot{VIEW_W / 2 - 150, y + 18, 300, 1};
+            SDL_Rect hlBot{VIEW_W / 2 - 150, y + 16, 300, 1};
             SDL_RenderFillRect(ren, &hlTop);
             SDL_RenderFillRect(ren, &hlBot);
         }
 
         std::string label = "УРОВЕНЬ " + std::to_string(i + 1) + " — " +
-                            ((i >= 0 && i < 4) ? levelNames[i] : "");
+                            ((i >= 0 && i < LEVEL_COUNT) ? levelNames[i] : "");
         pixfont::drawTextCentered(ren, VIEW_W / 2, y,
                                   label, sel ? 2 : 1,
                                   sel ? SDL_Color{255, 236, 170, 255}
@@ -695,12 +698,16 @@ void Game::drawWinScreen()
     SDL_RenderFillRect(ren, &l2);
 
     const bool bossWin = (levelIndex == 3);
+    const bool sawmillWin = (levelIndex == 4);
     pixfont::drawTextCentered(ren, VIEW_W / 2, 80,
-                              bossWin ? "БОСС ПОВЕРЖЕН!" : "КОЛЯН ВЫБРАЛСЯ!", 3,
+                              sawmillWin ? "ЛЁХА ОТВЕТИЛ ЗА ВСЁ!"
+                              : bossWin    ? "БОСС ПОВЕРЖЕН!"
+                                           : "КОЛЯН ВЫБРАЛСЯ!", 3,
                               SDL_Color{255, 226, 140, 255});
     pixfont::drawTextCentered(ren, VIEW_W / 2, 124,
-                              bossWin ? "КОЛЯН УЕХАЛ НА ДЖИПЕ"
-                                      : "ИЗ АПАРТАМЕНТОВ «ДАЙМОНД»", 2,
+                              sawmillWin ? "ЗАБРОШЕННАЯ ЛЕСОПИЛКА"
+                              : bossWin  ? "КОЛЯН УЕХАЛ НА ДЖИПЕ"
+                                         : "ИЗ АПАРТАМЕНТОВ «ДАЙМОНД»", 2,
                               SDL_Color{230, 220, 200, 255});
 
     if (std::fmod(titleBlink, 1.15f) < 0.78f) {
