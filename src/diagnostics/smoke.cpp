@@ -1165,7 +1165,10 @@ void Game::runSmoke()
     // 70 дробин = 10 залпов по 7; 69-я ещё не убивает.
     resetWorld(3);
     state = ST_PLAY;
-    bool bossPellets = false, bossVictory = false;
+    bool bossPellets = false, jeepSlide = false, firstSlideDismissed = false;
+    bool sawmillLoaded = false, sawmillSize = false, sawmillCups = false;
+    bool sawmillDoor = false, sawmillSpawn = false;
+    int sawmillMonsters = 0;
     int bossIdx2 = -1;
     for (size_t i = 0; i < monsters.size(); ++i)
         if (monsters[i].type == 4) { bossIdx2 = static_cast<int>(i); break; }
@@ -1186,11 +1189,49 @@ void Game::runSmoke()
         player.grounded = true;
         player.invuln = 2.0f;
         for (int i = 0; i < 240; ++i) update(1.0f / 120.0f, Input{});
-        bossVictory = (noAutoWin && state == ST_WIN);
+        // Джип показывает два слайда про записку и Лёху, затем грузит лесопилку.
+        jeepSlide = (noAutoWin && state == ST_SLIDE && levelIndex == 3 &&
+                     static_cast<int>(slideTexts.size()) == 2 &&
+                     slideTexts[0] ==
+                         "В БАРДАЧКЕ ЛЕЖИТ ЗАПИСКА С АДРЕСОМ ЛЕСОПИЛКИ" &&
+                     slideTexts[1] ==
+                         "ТЕПЕРЬ ТО ТЫ ЗА ВСЁ ОТВЕТИШЬ, АЛЕКСЕЙ!");
+        Input confirm;
+        confirm.confirm = true;
+        update(1.0f / 120.0f, confirm);
+        firstSlideDismissed = (state == ST_SLIDE && slideIndex == 1);
+        update(1.0f / 120.0f, confirm);
+        sawmillLoaded = (firstSlideDismissed && state == ST_PLAY &&
+                         levelIndex == 4);
+        if (sawmillLoaded) {
+            sawmillSize = (lvl.w == 100 && lvl.h == 22);
+            // Кубки читаются сверху вниз: (79,8), (44,10), (14,14).
+            sawmillCups = (static_cast<int>(cups.size()) == 3 &&
+                           cups[0].tx == 79 && cups[0].ty == 8 &&
+                           cups[1].tx == 44 && cups[1].ty == 10 &&
+                           cups[2].tx == 14 && cups[2].ty == 14);
+            sawmillDoor = (std::fabs(door.x - 96 * TILE) < 0.1f &&
+                           std::fabs(door.y - 18 * TILE) < 0.1f &&
+                           std::fabs(door.w - 2 * TILE) < 0.1f &&
+                           std::fabs(door.h - 2 * TILE) < 0.1f);
+            sawmillSpawn = (std::fabs(player.x - (3 * TILE + 3.0f)) < 0.1f &&
+                            std::fabs(player.y - (19 * TILE + TILE -
+                                                  PLAYER_H)) < 0.1f);
+            sawmillMonsters = static_cast<int>(monsters.size());
+        }
     }
-    SDL_Log("bossfight: math=%d pellets=%d jeepwin=%d state=%d kills=%d",
-            bossMath ? 1 : 0, bossPellets ? 1 : 0, bossVictory ? 1 : 0,
+    SDL_Log("bossfight: math=%d pellets=%d jeepslide=%d state=%d kills=%d",
+            bossMath ? 1 : 0, bossPellets ? 1 : 0, jeepSlide ? 1 : 0,
             state, kills);
+    SDL_Log("sawmill: loaded=%d size=%dx%d cups=%d door=%.0fx%.0f at %.0f,%.0f "
+            "spawn=%.0f,%.0f monsters=%d ok=%d",
+            sawmillLoaded ? 1 : 0, lvl.w, lvl.h,
+            static_cast<int>(cups.size()), door.w, door.h, door.x, door.y,
+            player.x, player.y, sawmillMonsters,
+            (sawmillLoaded && sawmillSize && sawmillCups && sawmillDoor &&
+             sawmillSpawn && sawmillMonsters == 8)
+                ? 1
+                : 0);
 
     // 9. Лестницы второго уровня — тот же зигзаг из двух тайлов, что и в первом.
     bool level2Stairs = false;
@@ -1458,7 +1499,9 @@ void Game::runSmoke()
               platformLand && bossSpeedOk &&
               bossPanelTurn && bossWallTurn &&
               grenadeThrown && grenadeKill &&
-              bossContact && bossMath && bossPellets && bossVictory &&
+              bossContact && bossMath && bossPellets && jeepSlide &&
+              sawmillLoaded && sawmillSize && sawmillCups && sawmillDoor &&
+              sawmillSpawn && sawmillMonsters == 8 &&
               menuOk && devSecretOk;
     SDL_Log("smoke %s", ok ? "OK" : "FAIL");
 }

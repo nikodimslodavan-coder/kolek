@@ -271,6 +271,18 @@ void Game::makeScenarios()
     screenshot("shot_slide_parking.bmp");
     SDL_RenderPresent(ren);
 
+    // 5b4 — два слайда после джипа: записка и Лёха
+    resetWorld(3);
+    beginSlides(4);
+    render();
+    screenshot("shot_slide_notice.bmp");
+    SDL_RenderPresent(ren);
+
+    slideIndex = 1;
+    render();
+    screenshot("shot_slide_alexey.bmp");
+    SDL_RenderPresent(ren);
+
     // 5c — DEV: секретная дверь и экран выбора уровня
     resetWorld(0);
     state = ST_PLAY;
@@ -380,12 +392,26 @@ void Game::makeScenarios()
     screenshot("shot_parking.bmp");
     SDL_RenderPresent(ren);
 
-    // 7 — победа над боссом парковки
-    resetWorld(3);
+    // 6f — пятый уровень: заброшенная лесопилка, пила и кубок на настиле
+    resetWorld(4);
+    state = ST_PLAY;
+    player.x = 40 * 16.0f + 3.0f;
+    player.y = 20 * 16.0f - PLAYER_H;
+    player.facing = 1;
+    player.vx = player.vy = 0;
+    player.grounded = true;
+    snapCamera();
+    introTimer = 20.0f;
+    render();
+    screenshot("shot_sawmill.bmp");
+    SDL_RenderPresent(ren);
+
+    // 7 — победа на лесопилке
+    resetWorld(4);
     monsters.clear();
     state = ST_WIN;
-    kills = 9;
-    score = 24000;
+    kills = 12;
+    score = 30000;
     spawnConfetti();
     spawnConfetti();
     for (int i = 0; i < 75; ++i) updateParticles(1.0f / 60.0f);
