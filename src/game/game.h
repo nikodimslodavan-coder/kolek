@@ -138,6 +138,7 @@ struct Game {
     void drawTechnicalWallpaper();
     void drawLobbyWallpaper();
     void drawParkingWallpaper();
+    void drawSawmillWallpaper();
     void drawTiles();
     void drawBrick(int x, int y, int tx, int ty);
     void drawFloorTile(int x, int y, int tx, int ty);

@@ -112,6 +112,12 @@ void Game::beginSlides(int nextLevel)
         slideTexts.push_back("ТАЧКА ЛЁХИНОГО ВОДИЛЫ НА ПАРКОВКЕ");
     }
 
+    // После джипа — записка из бардачка и дорога на лесопилку.
+    if (levelIndex == 3 && nextLevel == 4) {
+        slideTexts.push_back("В БАРДАЧКЕ ЛЕЖИТ ЗАПИСКА С АДРЕСОМ ЛЕСОПИЛКИ");
+        slideTexts.push_back("ТЕПЕРЬ ТО ТЫ ЗА ВСЁ ОТВЕТИШЬ, АЛЕКСЕЙ!");
+    }
+
     if (slideTexts.empty()) {
         // Для переходов без слайдов — сразу следующий уровень.
         int next = slideNextLevel;

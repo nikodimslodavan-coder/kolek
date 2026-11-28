@@ -58,7 +58,7 @@ void Game::updateCamera(float dt)
     float lookYOff = player.lookY * 24.0f + clampf(player.vy * 0.10f, -22.0f, 22.0f);
     float targetY = player.y + player.h * 0.5f + lookYOff - VIEW_H * 0.5f;
     float maxCamY = std::max(0.0f, static_cast<float>(lvl.h * TILE - VIEW_H));
-    if (levelIndex >= 2) maxCamY = 16.0f;
+    if (levelIndex == 2 || levelIndex == 3) maxCamY = 16.0f;
     targetY = clampf(targetY, 0.0f, maxCamY);
 
     camX += (targetX - camX) * std::min(1.0f, dt * 9.0f);
@@ -71,7 +71,7 @@ void Game::snapCamera()
                   std::max(0.0f, static_cast<float>(lvl.w * TILE - VIEW_W)));
     camY = clampf(player.y + player.h * 0.5f - VIEW_H * 0.5f, 0.0f,
                   std::max(0.0f, static_cast<float>(lvl.h * TILE - VIEW_H)));
-    if (levelIndex >= 2) camY = 16.0f;
+    if (levelIndex == 2 || levelIndex == 3) camY = 16.0f;
 }
 
 void Game::addLight(float x, float y, float r, SDL_Color c, float a)
