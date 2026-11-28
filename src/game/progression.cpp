@@ -181,6 +181,7 @@ void Game::respawnPlayer()
     player.hurt = 0;
     player.airJumps = 1;
     player.lookY = 0;
+    grenades.clear();
     snapCamera();
 }
 
@@ -197,6 +198,7 @@ void Game::killPlayer(int cause)
     shake = 0.8f;
     hurtFlash = 0.9f;
     SDL_Color blood = (cause == DEATH_DOBERMAN) ? SDL_Color{130, 26, 32, 255}
+                    : (cause == DEATH_GRENADE)  ? SDL_Color{180, 120, 70, 255}
                     : (cause == DEATH_FALL)     ? SDL_Color{120, 108, 96, 255}
                                                 : SDL_Color{210, 70, 70, 255};
     spawnSparkle(player.x + player.w * 0.5f, player.y + player.h * 0.5f, 22, blood);
@@ -223,6 +225,7 @@ void Game::updateDeath(float dt)
                      SDL_Color{130, 200, 255, 255});
     } else {
         state = ST_GAMEOVER;
+        grenades.clear();
         spawnSparkle(player.x + player.w * 0.5f, player.y + player.h * 0.5f, 20,
                      SDL_Color{90, 20, 30, 255});
     }

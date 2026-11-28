@@ -364,6 +364,7 @@ void Game::resetWorld(int index)
                             : (ty * 16.0f + 16.0f - m.b.h);
                 m.b.facing = -1;
                 m.hp = m.maxHp = BOSS_HP;
+                m.throwCd = rndf(rngState, 0.9f, 1.7f);
             } else if (m.type == 0) {
                 // паук: в полтора раза выше прежнего, юркий; живёт на потолке
                 // своей комнаты и спускается к Коляну на паутине.
@@ -420,6 +421,7 @@ void Game::resetWorld(int index)
     parts.clear();
     tracers.clear();
     bullets.clear();
+    grenades.clear();
     lights.clear();
     checkpoint = RectF{player.x, player.y, player.w, player.h};
     snapCamera();

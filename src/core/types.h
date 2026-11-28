@@ -68,6 +68,15 @@ struct Bullet {
     float spin = 0;          // лёгкий след/мерцание
 };
 
+// Граната босса: летит по дуге, взрывается по таймеру или при ударе.
+struct Grenade {
+    float x = 0, y = 0;
+    float vx = 0, vy = 0;
+    float fuse = 0;          // секунд до взрыва
+    float spin = 0;
+    bool  exploded = false;
+};
+
 // Кубок-трофей: три штуки открывают парадную дверь, каждый даёт 1000 очков.
 struct CupItem {
     int  tx = 0, ty = 0;

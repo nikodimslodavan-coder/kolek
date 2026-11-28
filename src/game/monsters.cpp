@@ -31,19 +31,23 @@ void Game::updateMonsters(float dt)
         }
 
         if (m.type == 4) {
-            // Босс не гонится за Коляном: он мерно патрулирует площадку
+            // Босс не гонится за Коляном: он быстро патрулирует площадку
             // между бетонными блоками и правой стеной. Упёршись в блок,
-            // разворачивается и идёт обратно.
+            // разворачивается и идёт обратно, а по пути бросает гранаты.
             b.vy = std::min(b.vy + GRAVITY * dt, MAX_FALL);
             int bossDir = b.facing;
-            const float bossSpeed = 26.0f;
             m.anim += dt * 1.6f;
-            b.vx = approach(b.vx, bossDir * bossSpeed, 260.0f * dt);
+            b.vx = approach(b.vx, bossDir * BOSS_SPEED, 650.0f * dt);
             moveX(lvl, b, b.vx * dt);
             moveY(lvl, b, b.vy * dt);
             if (b.blockedX) {
                 b.facing = -bossDir;
-                b.vx = b.facing * bossSpeed;
+                b.vx = b.facing * BOSS_SPEED;
+            }
+            if (m.throwCd > 0.0f) m.throwCd -= dt;
+            if (state == ST_PLAY && m.throwCd <= 0.0f) {
+                throwBossGrenade(b);
+                m.throwCd = BOSS_THROW_CD;
             }
             if (state == ST_PLAY && player.invuln <= 0 &&
                 overlapRect(player.x + 1.0f, player.y + 3.0f,
@@ -255,6 +259,62 @@ void Game::updateBullets(float dt)
         keep.push_back(k);
     }
     bullets.swap(keep);
+}
+
+void Game::throwBossGrenade(const Body& b)
+{
+    Grenade g;
+    g.x = b.x + b.w * 0.5f;
+    g.y = b.y + b.h * 0.32f;
+    float dx = (player.x + player.w * 0.5f) - g.x;
+    g.vx = clampf(dx * 1.10f, -340.0f, 340.0f);
+    g.vy = -210.0f;
+    g.fuse = 1.6f;
+    grenades.push_back(g);
+    spawnSparkle(g.x, g.y, 4, SDL_Color{255, 180, 90, 255});
+}
+
+void Game::explodeGrenade(const Grenade& g)
+{
+    shake = std::max(shake, 0.55f);
+    hurtFlash = std::max(hurtFlash, 0.35f);
+    spawnSparkle(g.x, g.y, 26, SDL_Color{255, 176, 70, 255});
+    spawnSparkle(g.x, g.y, 14, SDL_Color{255, 226, 150, 255});
+    spawnSparkle(g.x, g.y, 10, SDL_Color{70, 66, 62, 210});
+    addLight(g.x, g.y, 62.0f, SDL_Color{255, 170, 70, 255}, 40.0f);
+
+    if (state != ST_PLAY || player.invuln > 0) return;
+    float px = player.x + player.w * 0.5f;
+    float py = player.y + player.h * 0.5f;
+    float dx = px - g.x;
+    float dy = py - g.y;
+    if (dx * dx + dy * dy <= BOSS_BLAST_R * BOSS_BLAST_R)
+        killPlayer(DEATH_GRENADE);
+}
+
+void Game::updateGrenades(float dt)
+{
+    for (Grenade& g : grenades) {
+        if (g.exploded) continue;
+        g.fuse -= dt;
+        g.spin += dt * 9.0f;
+        g.vy = std::min(g.vy + 700.0f * dt, 520.0f);
+        g.x += g.vx * dt;
+        g.y += g.vy * dt;
+
+        // Стены, пол и бетонные блоки останавливают гранату; тонкие
+        // платформы S она пролетает насквозь (они односторонние).
+        bool hit = lvl.solidRect(g.x - 2.0f, g.y - 2.0f, 4.0f, 4.0f);
+        if (g.x < 4.0f || g.x > lvl.w * 16.0f - 4.0f) hit = true;
+        if (g.y > lvl.h * 16.0f) hit = true;
+        if (g.fuse <= 0.0f || hit) {
+            g.exploded = true;
+            explodeGrenade(g);
+        }
+    }
+    grenades.erase(std::remove_if(grenades.begin(), grenades.end(),
+                                  [](const Grenade& g) { return g.exploded; }),
+                   grenades.end());
 }
 
 } // namespace kolek

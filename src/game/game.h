@@ -29,6 +29,7 @@ struct Game {
     std::vector<Particle> parts;
     std::vector<Tracer> tracers;
     std::vector<Bullet> bullets;
+    std::vector<Grenade> grenades;
     std::vector<Light> lights;
     std::vector<Monster> monsters;
 
@@ -101,6 +102,9 @@ struct Game {
     void updateMonsters(float dt);
     void updateSpider(Monster& m, float dt, float dxp);
     void updateBullets(float dt);
+    void updateGrenades(float dt);
+    void throwBossGrenade(const Body& b);
+    void explodeGrenade(const Grenade& g);
     void updateWeapon(float dt, const Input& in);
     void updateParticles(float dt);
     void updateTracers(float dt);
@@ -171,6 +175,7 @@ struct Game {
     void drawDoberman(const Monster& m);
     void drawBoss(const Monster& m);
     void drawBullets();
+    void drawGrenades();
     void drawGuy(const Body& b, const Palette& p);
     void drawParticles();
     void drawTracers();

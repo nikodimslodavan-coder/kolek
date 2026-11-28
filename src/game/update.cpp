@@ -177,6 +177,7 @@ void Game::update(float dt, const Input& in)
     updateWeapon(dt, in);
     updateMonsters(dt);
     updateBullets(dt);
+    updateGrenades(dt);
     checkPickups();
     checkDoor(dt);
 
