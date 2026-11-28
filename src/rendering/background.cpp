@@ -906,6 +906,36 @@ void Game::drawStepTile(int x, int y, int tx, int ty)
         return;
     }
 
+    if (levelIndex == 3) {
+        // Парковка: бетонный бортик с металлической кромкой и разметкой.
+        SDL_SetRenderDrawColor(ren, 30, 32, 34, 255);
+        SDL_Rect sbase{x, y + 7, 16, 3};
+        SDL_RenderFillRect(ren, &sbase);
+        SDL_SetRenderDrawColor(ren, 84, 88, 92, 255);
+        SDL_Rect sboard{x, y, 16, 7};
+        SDL_RenderFillRect(ren, &sboard);
+        SDL_SetRenderDrawColor(ren, 128, 134, 138, 255);
+        SDL_Rect stop{x, y, 16, 2};
+        SDL_RenderFillRect(ren, &stop);
+        SDL_SetRenderDrawColor(ren, 196, 158, 48, 255);
+        SDL_Rect sstripe{x + 2, y + 4, 5, 1};
+        SDL_RenderFillRect(ren, &sstripe);
+        SDL_SetRenderDrawColor(ren, 58, 62, 64, 255);
+        SDL_Rect slow{x, y + 6, 16, 2};
+        SDL_RenderFillRect(ren, &slow);
+        if (lvl.at(tx - 1, ty) != 'S') {
+            SDL_SetRenderDrawColor(ren, 54, 58, 60, 255);
+            SDL_Rect scap{x, y, 2, 10};
+            SDL_RenderFillRect(ren, &scap);
+        }
+        if (lvl.at(tx + 1, ty) != 'S') {
+            SDL_SetRenderDrawColor(ren, 54, 58, 60, 255);
+            SDL_Rect scap{x + 14, y, 2, 10};
+            SDL_RenderFillRect(ren, &scap);
+        }
+        return;
+    }
+
     // Широкая деревянная ступень: доска у верхней кромки тайла.
     SDL_SetRenderDrawColor(ren, 92, 58, 34, 255);
     SDL_Rect board{x, y, 16, 7};

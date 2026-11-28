@@ -716,6 +716,7 @@ void Game::drawDeathOverlay()
     const bool dog = (deathCause == DEATH_DOBERMAN);
     const bool fall = (deathCause == DEATH_FALL);
     const bool boss = (deathCause == DEATH_BOSS);
+    const bool blast = boss || (deathCause == DEATH_GRENADE);
     float t = deathTimer;
 
     SDL_SetRenderDrawColor(ren, 6, 3, 8, 170);
@@ -731,6 +732,8 @@ void Game::drawDeathOverlay()
                             : bullet ? SDL_Color{236, 196, 96, 255}
                             : dog ? SDL_Color{196, 52, 52, 255}
                             : boss ? SDL_Color{152, 42, 56, 255}
+                            : (deathCause == DEATH_GRENADE)
+                                  ? SDL_Color{214, 132, 58, 255}
                             : fall ? SDL_Color{132, 118, 104, 255}
                                   : SDL_Color{168, 112, 62, 255};
     SDL_SetRenderDrawColor(ren, edge.r, edge.g, edge.b, 255);
@@ -970,8 +973,8 @@ void Game::drawDeathOverlay()
             box(cx - 12, cy + 36, 24, 3, SDL_Color{150, 44, 50, 220});
             box(cx - 4, cy + 34, 8, 2, SDL_Color{182, 60, 62, 200});
         }
-    } else if (deathCause == DEATH_BAT || boss) {
-        // Смерть от братка с битой или от гиганта на парковке:
+    } else if (deathCause == DEATH_BAT || blast) {
+        // Смерть от братка с битой, гиганта на парковке или взрыва гранаты:
         // удар сзади сносит Коляну голову.
         float u = clampf((t - 0.10f) / 0.85f, 0.0f, 1.0f);
         float impact = clampf((t - 0.95f) / 0.12f, 0.0f, 1.0f);
@@ -1272,6 +1275,7 @@ void Game::drawGameOverScreen()
         : (deathCause == DEATH_BULLET) ? "ПОСЛЕДНЯЯ ПРИЧИНА: ПУЛЯ"
         : (deathCause == DEATH_DOBERMAN) ? "ПОСЛЕДНЯЯ ПРИЧИНА: ДОБЕРМАН"
         : (deathCause == DEATH_BOSS)   ? "ПОСЛЕДНЯЯ ПРИЧИНА: ГИГАНТ С ПАРКОВКИ"
+        : (deathCause == DEATH_GRENADE) ? "ПОСЛЕДНЯЯ ПРИЧИНА: ГРАНАТА"
         : (deathCause == DEATH_FALL)   ? "ПОСЛЕДНЯЯ ПРИЧИНА: ПАДЕНИЕ В ПРОПАСТЬ"
                                         : "ПОСЛЕДНЯЯ ПРИЧИНА: БРАТОК С БИТОЙ";
     SDL_Color causeCol =
@@ -1279,6 +1283,7 @@ void Game::drawGameOverScreen()
         : (deathCause == DEATH_BULLET) ? SDL_Color{236, 196, 96, 255}
         : (deathCause == DEATH_DOBERMAN) ? SDL_Color{226, 90, 76, 255}
         : (deathCause == DEATH_BOSS)   ? SDL_Color{236, 118, 108, 255}
+        : (deathCause == DEATH_GRENADE) ? SDL_Color{244, 168, 86, 255}
         : (deathCause == DEATH_FALL)   ? SDL_Color{150, 136, 120, 255}
                                          : SDL_Color{206, 154, 96, 255};
     pixfont::drawTextCentered(ren, VIEW_W / 2, 138, causeText, 1, causeCol);

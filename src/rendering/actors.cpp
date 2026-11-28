@@ -473,6 +473,42 @@ void Game::drawBullets()
     }
 }
 
+void Game::drawGrenades()
+{
+    for (const Grenade& g : grenades) {
+        int x = sx(g.x);
+        int y = sy(g.y);
+        if (x < -24 || x > VIEW_W + 24 || y < -24 || y > VIEW_H + 24) continue;
+
+        // Тёмный корпус с металлическим бликом и вращением.
+        fillCircle(x, y, 3, SDL_Color{36, 52, 30, 255});
+        fillCircle(x, y, 2, SDL_Color{58, 78, 44, 255});
+        fillCircle(x - 1, y - 1, 1, SDL_Color{132, 154, 92, 220});
+
+        // Ручка и мигающий красный запал.
+        SDL_SetRenderDrawColor(ren, 92, 92, 98, 255);
+        SDL_Rect lever{x + 1, y - 5, 2, 4};
+        SDL_RenderFillRect(ren, &lever);
+        bool blink = (std::fmod(g.fuse, 0.22f) < 0.11f);
+        if (blink) {
+            SDL_SetRenderDrawColor(ren, 255, 78, 62, 255);
+            SDL_Rect cap{x - 1, y - 4, 2, 2};
+            SDL_RenderFillRect(ren, &cap);
+            addLight(g.x, g.y - 3.0f, 13.0f,
+                     SDL_Color{255, 92, 64, 255}, 16.0f);
+        } else {
+            SDL_SetRenderDrawColor(ren, 132, 42, 38, 255);
+            SDL_Rect cap{x - 1, y - 4, 2, 2};
+            SDL_RenderFillRect(ren, &cap);
+        }
+
+        // Искры от тлеющего фитиля.
+        float spark = std::fmod(g.fuse * 9.0f, 1.0f);
+        fillW(g.x + 1.0f, g.y - 4.0f - spark * 3.0f, 1.0f, 1.0f,
+              SDL_Color{255, 214, 120, 220});
+    }
+}
+
 void Game::drawGuy(const Body& b, const Palette& p)
 {
     if (b.invuln > 0 && b.hurt <= 0 && static_cast<int>(timeSec * 26.0f) % 2 == 0) return;

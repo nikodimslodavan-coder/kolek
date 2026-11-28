@@ -97,6 +97,7 @@ void Game::render()
     drawGuy(player, pp);
     if (state != ST_WIN) {
         drawBullets();
+        drawGrenades();
         drawTracers();
         drawParticles();
     }
