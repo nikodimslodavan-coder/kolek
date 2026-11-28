@@ -66,7 +66,6 @@ struct Game {
     int deathCause = DEATH_SPIDER;
     float deathTimer = 0;
     bool bossDefeated = false;    // босс парковки повержен
-    float bossWinTimer = 0;       // короткая пауза до экрана победы
 
     int mag = MAG_SIZE;
     bool reloading = false;

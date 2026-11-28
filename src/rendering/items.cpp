@@ -7,6 +7,8 @@ namespace kolek {
 void Game::drawDoor()
 {
     if (door.w <= 0) return;
+    // На парковке роль двери играет джип — его рисует фон.
+    if (levelIndex == 3) return;
     // На техническом этаже выход — грузовой лифт.
     if (levelIndex == 1) {
         drawElevatorDoor();

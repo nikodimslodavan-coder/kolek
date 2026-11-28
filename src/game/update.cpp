@@ -181,16 +181,6 @@ void Game::update(float dt, const Input& in)
     checkPickups();
     checkDoor(dt);
 
-    // Парковка: как только босс повержен, короткая пауза — и победа.
-    if (levelIndex == 3 && bossDefeated && state == ST_PLAY) {
-        bossWinTimer += dt;
-        if (bossWinTimer > BOSS_WIN_DELAY) {
-            bossWinTimer = 0;
-            state = ST_WIN;
-            spawnConfetti();
-        }
-    }
-
     // В вестибюле под полом — тёмная шахта: упал в пропасть, значит погиб.
     if (levelIndex == 2 && player.y > (lvl.h - 4) * TILE) {
         player.invuln = 0;

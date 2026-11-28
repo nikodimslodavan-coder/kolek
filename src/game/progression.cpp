@@ -53,6 +53,11 @@ void Game::checkPickups()
 void Game::checkDoor(float dt)
 {
     if (door.w <= 0) return;
+    // Джип на парковке открыт только после победы над боссом.
+    if (levelIndex == 3 && !bossDefeated) {
+        winDelay = 0;
+        return;
+    }
     bool inDoor = overlapRect(player.x, player.y, player.w, player.h,
                               door.x + 4.0f, door.y, door.w - 8.0f, door.h);
     if (!inDoor) {
@@ -100,6 +105,11 @@ void Game::beginSlides(int nextLevel)
     if (levelIndex == 1 && nextLevel == 2) {
         slideWallScene = true;
         slideTexts.push_back("ЛЁХА БЫЛ ЗДЕСЬ");
+    }
+
+    // Перед парковкой — кадр с джипом Лёхиного водилы.
+    if (levelIndex == 2 && nextLevel == 3) {
+        slideTexts.push_back("ТАЧКА ЛЁХИНОГО ВОДИЛЫ НА ПАРКОВКЕ");
     }
 
     if (slideTexts.empty()) {

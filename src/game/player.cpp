@@ -299,10 +299,7 @@ void Game::damageMonster(Monster& m, int dmg, float dirX)
         score += KILL_SCORE[m.type];
         addScorePopup(KILL_SCORE[m.type], SDL_Color{255, 226, 150, 255});
         shake = std::max(shake, m.type == 4 ? 0.55f : 0.30f);
-        if (m.type == 4) {
-            bossDefeated = true;
-            bossWinTimer = 0;
-        }
+        if (m.type == 4) bossDefeated = true;
         SDL_Color blood = (m.type == 0) ? SDL_Color{150, 40, 45, 255}
                         : (m.type == 3) ? SDL_Color{120, 26, 34, 255}
                         : (m.type == 4) ? SDL_Color{110, 22, 36, 255}

@@ -9,7 +9,6 @@ void Game::resetWorld(int index)
     secretDoorActive = false;
     secretDoor = RectF{};
     bossDefeated = false;
-    bossWinTimer = 0;
 
     levelIndex = std::max(0, std::min(index, LEVEL_COUNT - 1));
     lvl.load(LEVEL_MAPS[levelIndex]);
@@ -49,6 +48,13 @@ void Game::resetWorld(int index)
         door.y = dy0 * TILE;
         door.w = (dx1 - dx0 + 1) * TILE;
         door.h = (dy1 - dy0 + 1) * TILE;
+    }
+    // На парковке роль двери играет джип: зона посадки у его борта.
+    if (levelIndex == 3) {
+        door.x = JEEP_X;
+        door.y = 17 * TILE - JEEP_DOOR_H;
+        door.w = JEEP_W;
+        door.h = JEEP_DOOR_H;
     }
 
     // украшения: девять случайных тайлов на твёрдом полу, по три каждого вида.
