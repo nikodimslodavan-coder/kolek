@@ -264,6 +264,13 @@ void Game::makeScenarios()
     screenshot("shot_slide3.bmp");
     SDL_RenderPresent(ren);
 
+    // 5b3 — слайд перед парковкой: джип Лёхиного водилы
+    resetWorld(2);
+    beginSlides(3);
+    render();
+    screenshot("shot_slide_parking.bmp");
+    SDL_RenderPresent(ren);
+
     // 5c — DEV: секретная дверь и экран выбора уровня
     resetWorld(0);
     state = ST_PLAY;

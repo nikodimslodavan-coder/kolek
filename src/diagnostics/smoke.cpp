@@ -949,8 +949,8 @@ void Game::runSmoke()
                 (fallDies && fallRespawns) ? 1 : 0);
     }
 
-    // Кубки вестибюля собраны — дверь на другом конце зала открывается
-    // и ведёт на ночную парковку с боссом.
+    // Кубки вестибюля собраны — дверь на другом конце зала открывается,
+    // показывает слайд про джип и ведёт на ночную парковку с боссом.
     if (level3) {
         monsters.clear();
         for (CupItem& c : cups) {
@@ -966,9 +966,24 @@ void Game::runSmoke()
         player.invuln = 2.0f;
         for (int i = 0; i < 200; ++i) update(1.0f / 120.0f, Input{});
     }
+    bool parkingSlide = (state == ST_SLIDE && levelIndex == 2 &&
+                         static_cast<int>(slideTexts.size()) == 1 &&
+                         slideTexts[0] == "ТАЧКА ЛЁХИНОГО ВОДИЛЫ НА ПАРКОВКЕ");
+    if (parkingSlide) {
+        Input in;
+        in.confirm = true;
+        update(1.0f / 120.0f, in);
+    }
+    SDL_Log("parkingslide: shown=%d level=%d state=%d ok=%d",
+            parkingSlide ? 1 : 0, levelIndex, state, parkingSlide ? 1 : 0);
+
     bool level4 = (levelIndex == 3 && state == ST_PLAY);
     bool parkingSize = (lvl.w == 40 && lvl.h == 19);
-    bool parkingBare = (cups.empty() && door.w <= 0.0f);
+    bool parkingBare = cups.empty();
+    bool jeepDoor = (std::fabs(door.x - JEEP_X) < 0.1f &&
+                     std::fabs(door.y - (17 * TILE - JEEP_DOOR_H)) < 0.1f &&
+                     std::fabs(door.w - JEEP_W) < 0.1f &&
+                     std::fabs(door.h - JEEP_DOOR_H) < 0.1f);
     int bossCount = 0;
     bool bossSize = false, bossHpOk = false, bossNearJeep = false;
     bool bossStandsOnFloor = false, bossFacesPlayer = false;
@@ -991,10 +1006,10 @@ void Game::runSmoke()
         }
     bool bossOnMap = (level4 && parkingSize && parkingBare && bossCount == 1 &&
                       bossSize && bossHpOk && bossNearJeep &&
-                      bossStandsOnFloor && bossFacesPlayer &&
+                      bossStandsOnFloor && bossFacesPlayer && jeepDoor &&
                       parkingPanels == 8 && parkingPlatforms == 18);
     SDL_Log("parking: level=%d size=%dx%d boss=%d %dx%d hp=%d/%d nearjeep=%d "
-            "floor=%d face=%d panels=%d plats=%d ok=%d",
+            "floor=%d face=%d panels=%d plats=%d jeep=%d ok=%d",
             levelIndex, lvl.w, lvl.h, bossCount,
             bossCount ? static_cast<int>(monsters.back().b.w) : 0,
             bossCount ? static_cast<int>(monsters.back().b.h) : 0,
@@ -1002,7 +1017,22 @@ void Game::runSmoke()
             bossCount ? monsters.back().maxHp : 0,
             bossNearJeep ? 1 : 0, bossStandsOnFloor ? 1 : 0,
             bossFacesPlayer ? 1 : 0, parkingPanels, parkingPlatforms,
-            bossOnMap ? 1 : 0);
+            jeepDoor ? 1 : 0, bossOnMap ? 1 : 0);
+
+    // Пока босс жив, джип-дверь не открывается.
+    bool jeepLocked = false;
+    if (level4) {
+        player.x = door.x + 20.0f;
+        player.y = door.y + door.h - PLAYER_H;
+        player.vx = player.vy = 0;
+        player.grounded = true;
+        player.invuln = 5.0f;
+        for (int i = 0; i < 120; ++i) update(1.0f / 120.0f, Input{});
+        jeepLocked = (state == ST_PLAY && !bossDefeated);
+        SDL_Log("jeep: locked=%d state=%d boss=%d ok=%d",
+                jeepLocked ? 1 : 0, state, bossDefeated ? 1 : 0,
+                jeepLocked ? 1 : 0);
+    }
 
     // Низкая площадка S держит Коляна: прыжок с неё — часть маршрута.
     bool platformLand = false;
@@ -1148,10 +1178,17 @@ void Game::runSmoke()
         damageMonster(bm, 1, 1.0f);
         bossPellets = (aliveAtOne && bm.dead && bossDefeated &&
                        score == scoreBefore + BOSS_SCORE);
+        // После смерти босса победа не включается сама: нужно дойти до джипа.
+        bool noAutoWin = (state == ST_PLAY);
+        player.x = door.x + 8.0f;
+        player.y = door.y + door.h - PLAYER_H;
+        player.vx = player.vy = 0;
+        player.grounded = true;
+        player.invuln = 2.0f;
         for (int i = 0; i < 240; ++i) update(1.0f / 120.0f, Input{});
-        bossVictory = (state == ST_WIN);
+        bossVictory = (noAutoWin && state == ST_WIN);
     }
-    SDL_Log("bossfight: math=%d pellets=%d victory=%d state=%d kills=%d",
+    SDL_Log("bossfight: math=%d pellets=%d jeepwin=%d state=%d kills=%d",
             bossMath ? 1 : 0, bossPellets ? 1 : 0, bossVictory ? 1 : 0,
             state, kills);
 
@@ -1417,7 +1454,8 @@ void Game::runSmoke()
               reloadDone && dying && respawned && gameOver && slidesOk &&
               level2 && level2Stairs && techDecorOk && wallSlide && level3 &&
               lobbyOk && lobbyBonuses && fallDies && fallRespawns &&
-              level4 && bossOnMap && platformLand && bossSpeedOk &&
+              parkingSlide && level4 && bossOnMap && jeepDoor && jeepLocked &&
+              platformLand && bossSpeedOk &&
               bossPanelTurn && bossWallTurn &&
               grenadeThrown && grenadeKill &&
               bossContact && bossMath && bossPellets && bossVictory &&
