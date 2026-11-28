@@ -983,26 +983,52 @@ void Game::runSmoke()
         bossStandsOnFloor = (std::fabs((m.b.y + m.b.h) - 17 * TILE) < 1.0f);
         bossFacesPlayer = (m.b.facing == -1);
     }
-    int parkingPanels = 0;
+    int parkingPanels = 0, parkingPlatforms = 0;
     for (int ty = 0; ty < lvl.h; ++ty)
-        for (int tx = 0; tx < lvl.w; ++tx)
+        for (int tx = 0; tx < lvl.w; ++tx) {
             if (lvl.at(tx, ty) == 't' && ty >= lvl.h - 4) ++parkingPanels;
+            if (lvl.at(tx, ty) == 'S') ++parkingPlatforms;
+        }
     bool bossOnMap = (level4 && parkingSize && parkingBare && bossCount == 1 &&
                       bossSize && bossHpOk && bossNearJeep &&
                       bossStandsOnFloor && bossFacesPlayer &&
-                      parkingPanels == 8);
+                      parkingPanels == 8 && parkingPlatforms == 18);
     SDL_Log("parking: level=%d size=%dx%d boss=%d %dx%d hp=%d/%d nearjeep=%d "
-            "floor=%d face=%d panels=%d ok=%d",
+            "floor=%d face=%d panels=%d plats=%d ok=%d",
             levelIndex, lvl.w, lvl.h, bossCount,
             bossCount ? static_cast<int>(monsters.back().b.w) : 0,
             bossCount ? static_cast<int>(monsters.back().b.h) : 0,
             bossCount ? monsters.back().hp : 0,
             bossCount ? monsters.back().maxHp : 0,
             bossNearJeep ? 1 : 0, bossStandsOnFloor ? 1 : 0,
-            bossFacesPlayer ? 1 : 0, parkingPanels, bossOnMap ? 1 : 0);
+            bossFacesPlayer ? 1 : 0, parkingPanels, parkingPlatforms,
+            bossOnMap ? 1 : 0);
+
+    // Низкая площадка S держит Коляна: прыжок с неё — часть маршрута.
+    bool platformLand = false;
+    {
+        resetWorld(3);
+        state = ST_PLAY;
+        monsters.clear();
+        player = Body{};
+        player.w = 10;
+        player.h = PLAYER_H;
+        player.x = 4 * 16.0f + 3.0f;   // над площадкой row 15, cols 3-5
+        player.y = 12 * 16.0f;
+        player.vx = player.vy = 0;
+        player.invuln = 2.0f;
+        for (int i = 0; i < 120; ++i) update(1.0f / 120.0f, Input{});
+        platformLand = (player.grounded &&
+                        std::fabs((player.y + player.h) - 15 * 16.0f) < 1.0f);
+        SDL_Log("platform: feet=%.1f grounded=%d ok=%d",
+                player.y + player.h, player.grounded ? 1 : 0,
+                platformLand ? 1 : 0);
+    }
 
     // Босс упирается в бетонный блок и в правую стену — и разворачивается.
-    bool bossPanelTurn = false, bossWallTurn = false;
+    resetWorld(3);
+    state = ST_PLAY;
+    bool bossPanelTurn = false, bossWallTurn = false, bossSpeedOk = false;
     int bossIdx = -1;
     for (size_t i = 0; i < monsters.size(); ++i)
         if (monsters[i].type == 4) { bossIdx = static_cast<int>(i); break; }
@@ -1013,29 +1039,89 @@ void Game::runSmoke()
         player.grounded = true;
         player.invuln = 5.0f;
         Monster& bm = monsters[bossIdx];
+
+        bm.b.x = 400.0f;             // чистый участок до правой стены
+        bm.b.y = 17 * 16.0f - BOSS_H;
+        bm.b.vx = BOSS_SPEED;
+        bm.b.facing = 1;
+        float speedX0 = bm.b.x;
+        for (int i = 0; i < 120; ++i) updateMonsters(1.0f / 120.0f);
+        bossSpeedOk = (std::fabs((bm.b.x - speedX0) - BOSS_SPEED) < 4.0f);
+
         bm.b.x = 242.0f;             // вплотную к правому краю блока (240)
         bm.b.y = 17 * 16.0f - BOSS_H;
-        bm.b.vx = -26.0f;
+        bm.b.vx = -BOSS_SPEED;
         bm.b.facing = -1;
-        for (int i = 0; i < 90; ++i) updateMonsters(1.0f / 120.0f);
-        bossPanelTurn = (bm.b.facing == 1 && bm.b.x >= 239.0f);
+        bool panelTurned = false;
+        float panelTurnX = 0.0f;
+        for (int i = 0; i < 240 && !panelTurned; ++i) {
+            updateMonsters(1.0f / 120.0f);
+            if (bm.b.facing == 1) {
+                panelTurned = true;
+                panelTurnX = bm.b.x;
+            }
+        }
+        bossPanelTurn = (panelTurned && panelTurnX >= 238.0f &&
+                         panelTurnX <= 243.0f);
 
         bm.b.x = 520.0f;             // недалеко от правой стены (624)
         bm.b.y = 17 * 16.0f - BOSS_H;
-        bm.b.vx = 26.0f;
+        bm.b.vx = BOSS_SPEED;
         bm.b.facing = 1;
-        for (int i = 0; i < 120; ++i) updateMonsters(1.0f / 120.0f);
-        bossWallTurn = (bm.b.facing == -1 && bm.b.x <= 545.0f);
+        bool wallTurned = false;
+        float wallTurnX = 0.0f;
+        for (int i = 0; i < 300 && !wallTurned; ++i) {
+            updateMonsters(1.0f / 120.0f);
+            if (bm.b.facing == -1) {
+                wallTurned = true;
+                wallTurnX = bm.b.x;
+            }
+        }
+        bossWallTurn = (wallTurned && wallTurnX >= 588.0f);
     }
-    SDL_Log("bossturn: panel=%d wall=%d x=%.0f",
-            bossPanelTurn ? 1 : 0, bossWallTurn ? 1 : 0,
+    SDL_Log("bossturn: speed=%d panel=%d wall=%d x=%.0f",
+            bossSpeedOk ? 1 : 0, bossPanelTurn ? 1 : 0,
+            bossWallTurn ? 1 : 0,
             bossIdx >= 0 ? monsters[bossIdx].b.x : -1.0f);
+
+    // Босс бросает гранату, а её взрыв убивает Коляна.
+    bool grenadeThrown = false, grenadeKill = false;
+    {
+        resetWorld(3);
+        state = ST_PLAY;
+        lives = START_LIVES;
+        player.x = 4 * 16.0f + 3.0f;
+        player.y = 17 * 16.0f - PLAYER_H;
+        player.vx = player.vy = 0;
+        player.grounded = true;
+        player.invuln = 0;
+        int gi = -1;
+        for (size_t i = 0; i < monsters.size(); ++i)
+            if (monsters[i].type == 4) { gi = static_cast<int>(i); break; }
+        if (gi >= 0) {
+            monsters[gi].throwCd = 0.0f;
+            updateMonsters(1.0f / 120.0f);
+            grenadeThrown = !grenades.empty();
+        }
+        if (grenadeThrown) {
+            Grenade& g = grenades.front();
+            g.x = player.x + player.w * 0.5f;
+            g.y = player.y + player.h * 0.5f;
+            g.fuse = 0.0f;
+            updateGrenades(1.0f / 120.0f);
+            grenadeKill = (state == ST_DYING &&
+                           deathCause == DEATH_GRENADE);
+        }
+    }
+    SDL_Log("grenade: thrown=%d kill=%d cause=%d ok=%d",
+            grenadeThrown ? 1 : 0, grenadeKill ? 1 : 0, deathCause,
+            (grenadeThrown && grenadeKill) ? 1 : 0);
 
     // Гигант убивает касанием: отдельная причина смерти.
     resetWorld(3);
     state = ST_PLAY;
     lives = START_LIVES;
-    player.x = 19 * 16.0f + 4.0f;
+    player.x = 22 * 16.0f + 4.0f;
     player.y = 17 * 16.0f - PLAYER_H;
     player.vx = player.vy = 0;
     player.grounded = true;
@@ -1331,7 +1417,9 @@ void Game::runSmoke()
               reloadDone && dying && respawned && gameOver && slidesOk &&
               level2 && level2Stairs && techDecorOk && wallSlide && level3 &&
               lobbyOk && lobbyBonuses && fallDies && fallRespawns &&
-              level4 && bossOnMap && bossPanelTurn && bossWallTurn &&
+              level4 && bossOnMap && platformLand && bossSpeedOk &&
+              bossPanelTurn && bossWallTurn &&
+              grenadeThrown && grenadeKill &&
               bossContact && bossMath && bossPellets && bossVictory &&
               menuOk && devSecretOk;
     SDL_Log("smoke %s", ok ? "OK" : "FAIL");
